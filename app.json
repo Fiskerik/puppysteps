@@ -15,6 +15,9 @@
       "icon": "./assets/icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.eaconsulting.puppysteps",
+      "config": {
+        "usesNonExemptEncryption": false
+      },
       "infoPlist": {
         "NSUserNotificationsUsageDescription": "Puppysteps uses reminders to help you take your puppy out at the right time."
       }
@@ -34,6 +37,12 @@
         }
       ],
       "expo-localization",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Puppysteps uses your location to show today's local weather and walk windows."
+        }
+      ],
       "expo-sqlite",
       [
         "expo-image-picker",

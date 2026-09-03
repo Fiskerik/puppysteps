@@ -1,24 +1,56 @@
-import React, { useState } from "react";
-import { Alert, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, View } from "react-native";
+import React, { useMemo, useRef, useState } from "react";
+import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { router } from "expo-router";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { useTranslation } from "react-i18next";
-import type { Locale } from "../../src/domain/models";
+import type { Dog, Locale, RoutineEventKind } from "../../src/domain/models";
+import { PREP_CHECKLIST } from "../../src/content/prepChecklist";
+import { ageInDays } from "../../src/content/puppyTimeline";
 import { supported } from "../../src/i18n";
-import { useAppStore } from "../../src/store/AppStore";
+import { useAppStore, type DogDraft } from "../../src/store/AppStore";
 import { Avatar, Button, Card, DatePickerField, Field, Pill, Screen, SectionTitle } from "../../src/ui/Primitives";
-import { colors, spacing, typography } from "../../src/ui/theme";
+import { pickLocalPhoto } from "../../src/ui/photoPicker";
+import { colors, shadow, spacing, typography } from "../../src/ui/theme";
 
 const languageNames: Record<Locale, string> = { "sv-SE": "Svenska", "en-GB": "English", "fr-FR": "Français", "de-DE": "Deutsch", "da-DK": "Dansk", "fi-FI": "Suomi", "nb-NO": "Norsk" };
+const emptyDraft: DogDraft = { name: "", breed: null, allergies: null, birthDate: null, arrivalDate: null, avatar: "🐶", photoUri: null, sex: "unknown", weightKg: null, chipNumber: null };
 
 export default function ProfileScreen() {
   const { t } = useTranslation();
-  const { snapshot, selectedDogId, setSelectedDogId, addDog, updateSettings, enableReminders, toggleResponsible, exportData, deleteLocalData } = useAppStore();
-  const [addVisible, setAddVisible] = useState(false);
-  const [name, setName] = useState("");
-  const [breed, setBreed] = useState("");
-  const [birthDate, setBirthDate] = useState("");
-  const saveDog = () => { const added = addDog({ name, breed: breed || null, birthDate: birthDate || null, avatar: "🐶" }); if (added) { setName(""); setBreed(""); setBirthDate(""); setAddVisible(false); } else Alert.alert(snapshot.dogs.length >= 2 ? t("dog.limit") : t("dog.saveError")); };
+  const { snapshot, selectedDogId, selectedDog, setSelectedDogId, addDog, updateDog, togglePrepItem, updateSettings, enableReminders, toggleResponsible, exportData, deleteLocalData } = useAppStore();
+  const scrollRef = useRef<ScrollView>(null);
+  const [checklistY, setChecklistY] = useState<number | null>(null);
+  const [faqVisible, setFaqVisible] = useState(false);
+  const [missionsVisible, setMissionsVisible] = useState(false);
+  const [reportVisible, setReportVisible] = useState(false);
+  const [editorVisible, setEditorVisible] = useState(false);
+  const [editingDog, setEditingDog] = useState<Dog | null>(null);
+  const [draft, setDraft] = useState<DogDraft>(emptyDraft);
+  const [photoBusy, setPhotoBusy] = useState(false);
+
+  const openAddDog = () => { setEditingDog(null); setDraft({ ...emptyDraft }); setEditorVisible(true); };
+  const openEditDog = (dog: Dog) => { setEditingDog(dog); setDraft({ name: dog.name, breed: dog.breed, allergies: dog.allergies, birthDate: dog.birthDate, arrivalDate: dog.arrivalDate, avatar: dog.avatar, photoUri: dog.photoUri, sex: dog.sex, weightKg: dog.weightKg, chipNumber: dog.chipNumber }); setEditorVisible(true); };
+  const closeEditor = () => { setEditorVisible(false); setEditingDog(null); setDraft({ ...emptyDraft }); };
+  const patchDraft = (patch: Partial<DogDraft>) => setDraft((current) => ({ ...current, ...patch }));
+  const saveDog = () => {
+    const normalized: DogDraft = { name: draft.name.trim(), breed: draft.breed?.trim() || null, allergies: draft.allergies?.trim() || null, birthDate: draft.birthDate, arrivalDate: draft.arrivalDate ?? null, avatar: draft.avatar, photoUri: draft.photoUri ?? null, sex: draft.sex ?? "unknown", weightKg: draft.weightKg === null || draft.weightKg === undefined || Number.isNaN(draft.weightKg) ? null : draft.weightKg, chipNumber: draft.chipNumber?.trim() || null };
+    const saved = editingDog ? updateDog({ ...editingDog, ...normalized }) : addDog(normalized);
+    if (!saved) { Alert.alert(snapshot.dogs.length >= 2 && !editingDog ? t("dog.limit") : t("dog.saveError")); return; }
+    closeEditor();
+  };
+  const chooseDogPhoto = async (source: "camera" | "library") => {
+    setPhotoBusy(true);
+    try { const uri = await pickLocalPhoto(source); if (uri) patchDraft({ photoUri: uri }); }
+    catch (error) { console.warn("Could not attach dog photo", error); Alert.alert(t("log.photoError")); }
+    finally { setPhotoBusy(false); }
+  };
+  const openPhotoOptions = () => Alert.alert(t("dog.photo"), undefined, [
+    { text: t("log.takePhoto"), onPress: () => void chooseDogPhoto("camera") },
+    { text: t("log.choosePhoto"), onPress: () => void chooseDogPhoto("library") },
+    ...(draft.photoUri ? [{ text: t("log.removePhoto"), onPress: () => patchDraft({ photoUri: null }) }] : []),
+    { text: t("common.cancel"), style: "cancel" },
+  ]);
   const exportFile = async (format: "csv" | "json") => {
     try {
       const directory = FileSystem.cacheDirectory;
@@ -27,48 +59,82 @@ export default function ProfileScreen() {
       await FileSystem.writeAsStringAsync(path, exportData(format), { encoding: FileSystem.EncodingType.UTF8 });
       if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(path, { mimeType: format === "csv" ? "text/csv" : "application/json", dialogTitle: t("profile.export") });
       else Alert.alert(`${t("profile.export")}: ${path}`);
-    } catch (error) {
-      console.warn("Could not export local data", error);
-      Alert.alert(t("profile.exportError"));
-    }
+    } catch (error) { console.warn("Could not export local data", error); Alert.alert(t("profile.exportError")); }
   };
-  const toggleReminders = async () => {
-    if (snapshot.settings.remindersEnabled) {
-      updateSettings({ remindersEnabled: false });
-      return;
-    }
-    if (!(await enableReminders())) Alert.alert(t("notifications.disabled"));
-  };
+  const toggleReminders = async () => { if (snapshot.settings.remindersEnabled) { updateSettings({ remindersEnabled: false }); return; } if (!(await enableReminders())) Alert.alert(t("notifications.disabled")); };
   const confirmDelete = () => Alert.alert(t("profile.delete"), t("profile.deleteConfirm"), [{ text: t("common.cancel"), style: "cancel" }, { text: t("profile.deleteAction"), style: "destructive", onPress: () => void deleteLocalData() }]);
-  return <Screen><View style={styles.header}><Text style={styles.eyebrow}>{t("nav.profile")}</Text><Text style={styles.title}>{t("profile.title")}</Text><Text style={styles.subtitle}>{t("profile.localBody")}</Text></View><SectionTitle title={t("profile.dogs")} action={snapshot.dogs.length < 2 ? `＋ ${t("common.add")}` : undefined} onAction={() => setAddVisible(true)} />{snapshot.dogs.length ? <Card>{snapshot.dogs.map((dog) => <View key={dog.id} style={styles.dogRow}><Avatar emoji={dog.avatar} size={44} /><View style={styles.dogCopy}><Text style={styles.dogName}>{dog.name}</Text><Text style={styles.dogMeta}>{dog.breed ?? t("dog.unknown")}</Text></View><Pill active={dog.id === selectedDogId} onPress={() => setSelectedDogId(dog.id)}>{dog.id === selectedDogId ? "✓" : t("common.select")}</Pill></View>)}</Card> : <Card tone="moss"><Text style={styles.cardTitle}>{t("profile.addFirstDog")}</Text><Button onPress={() => setAddVisible(true)}>{t("profile.addDog")}</Button></Card>}
+  const completedPrep = useMemo(() => PREP_CHECKLIST.filter((item) => snapshot.prepChecklist[item.id]).length, [snapshot.prepChecklist]);
+  const dogCheckIns = useMemo(() => snapshot.checkIns.filter((item) => item.dogId === selectedDog.id), [selectedDog.id, snapshot.checkIns]);
+  const dogEvents = useMemo(() => snapshot.eliminations.filter((item) => item.dogId === selectedDog.id), [selectedDog.id, snapshot.eliminations]);
+  const dogRoutine = useMemo(() => snapshot.routineEvents.filter((item) => item.dogId === selectedDog.id), [selectedDog.id, snapshot.routineEvents]);
+  const completedLessons = Object.values(snapshot.lessonProgress).filter((state) => state === "completed").length;
+  const points = dogCheckIns.length * 5 + dogRoutine.length * 3 + completedLessons * 20 + completedPrep * 5 + snapshot.milestones.filter((item) => item.dogId === selectedDog.id && item.completed).length * 10;
+  const tiers = [{ name: "New arrival", min: 0 }, { name: "Calm companion", min: 100 }, { name: "Confident guide", min: 250 }, { name: "Puppy pro", min: 500 }];
+  const tierIndex = Math.max(0, tiers.reduce((index, tier, current) => points >= tier.min ? current : index, 0));
+  const currentTier = tiers[tierIndex] ?? tiers[0];
+  const nextTier = tiers[tierIndex + 1];
+  const tierProgress = nextTier && currentTier ? Math.min(1, (points - currentTier.min) / (nextTier.min - currentTier.min)) : 1;
+  const usualTime = (kind: RoutineEventKind): string => {
+    const values = dogRoutine.filter((event) => event.kind === kind).slice(0, 5).map((event) => new Intl.DateTimeFormat(snapshot.settings.locale, { hour: "2-digit", minute: "2-digit" }).format(new Date(event.occurredAt)));
+    return values.length ? values.join(" · ") : "Not enough data yet";
+  };
+  const reportText = `Puppysteps care report\n\nDog: ${selectedDog.name}\nBreed: ${selectedDog.breed ?? "Not recorded"}\nWeight: ${selectedDog.weightKg ? `${selectedDog.weightKg} kg` : "Not recorded"}\nMicrochip: ${selectedDog.chipNumber ?? "Not recorded"}\nAllergies: ${selectedDog.allergies ?? "None recorded"}\n\nUsual routine\nWalks: ${usualTime("walk")}\nMeals: ${usualTime("meal")}\nDrinks: ${usualTime("drink")}\nSleep: ${usualTime("sleep")}\n\nProgress\nOutdoor potty successes: ${dogEvents.filter((event) => event.location === "outside").length}\nLogged entries: ${dogCheckIns.length + dogRoutine.length}\nTraining lessons completed: ${completedLessons}\nPoints: ${points} (${currentTier?.name ?? "New arrival"})`;
+  const shareReport = async () => {
+    try {
+      const directory = FileSystem.cacheDirectory;
+      if (!directory) throw new Error("No cache directory available");
+      const path = `${directory}puppysteps-care-report.txt`;
+      await FileSystem.writeAsStringAsync(path, reportText, { encoding: FileSystem.EncodingType.UTF8 });
+      if (await Sharing.isAvailableAsync()) await Sharing.shareAsync(path, { mimeType: "text/plain", dialogTitle: "Share care report" });
+      else Alert.alert("Care report", reportText);
+    } catch (error) { console.warn("Could not share care report", error); Alert.alert(t("profile.exportError")); }
+  };
+  const tools = [
+    { icon: "🎓", title: "Training lessons", detail: "Short, practical courses", onPress: () => router.push("/(tabs)/learn") },
+    { icon: "🗓️", title: "Puppy timeline", detail: "Age-by-age guidance", onPress: () => router.push("/(tabs)/journey") },
+    { icon: "✅", title: "Pick-up checklist", detail: `${completedPrep}/${PREP_CHECKLIST.length} ready`, onPress: () => checklistY !== null && scrollRef.current?.scrollTo({ y: Math.max(0, checklistY - 16), animated: true }) },
+    { icon: "⏱️", title: "Daily routines", detail: "Walk, eat, drink, rest", onPress: () => router.push("/(tabs)") },
+    { icon: "❓", title: "Puppy FAQ", detail: "Calm answers for common moments", onPress: () => setFaqVisible(true) },
+    { icon: "📤", title: "Care report", detail: "Share with a sitter or trainer", onPress: () => setReportVisible(true) },
+    { icon: "🏅", title: "Missions", detail: "Earn points as you build habits", onPress: () => setMissionsVisible(true) },
+  ];
+
+  return <Screen scrollRef={scrollRef}>
+    <View style={styles.header}><Text style={styles.eyebrow}>{t("nav.profile")}</Text><Text style={styles.title}>{t("profile.title")}</Text><Text style={styles.subtitle}>{t("profile.localBody")}</Text></View>
+    <SectionTitle title={t("profile.dogs")} action={snapshot.dogs.length < 2 ? `＋ ${t("common.add")}` : undefined} onAction={openAddDog} />
+    {snapshot.dogs.length ? <Card>{snapshot.dogs.map((dog) => <Pressable key={dog.id} accessibilityRole="button" accessibilityLabel={`${dog.name}. ${t("profile.holdToEdit")}`} onPress={() => setSelectedDogId(dog.id)} onLongPress={() => openEditDog(dog)} delayLongPress={350} style={styles.dogRow}><Avatar emoji={dog.avatar} photoUri={dog.photoUri} size={48} /><View style={styles.dogCopy}><Text style={styles.dogName}>{dog.name}</Text><Text style={styles.dogMeta}>{dog.breed ?? t("dog.unknown")}{dog.chipNumber ? ` · ${dog.chipNumber}` : ""}</Text></View><View style={[styles.selectCircle, dog.id === selectedDogId && styles.selectCircleActive]}><Text style={styles.selectText}>{dog.id === selectedDogId ? "✓" : ""}</Text></View></Pressable>)}</Card> : <Card tone="moss"><Text style={styles.cardTitle}>{t("profile.addFirstDog")}</Text><Button onPress={openAddDog}>{t("profile.addDog")}</Button></Card>}
+    <Text style={styles.hint}>{t("profile.holdToEdit")}</Text>
+
+    <SectionTitle title="Puppy at a glance" /><ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statsRow}>{[
+      { value: String(dogEvents.filter((event) => event.location === "outside").length), label: "Outdoor potty wins", icon: "🐾" },
+      { value: String(dogCheckIns.length + dogRoutine.length), label: "Logged moments", icon: "📝" },
+      { value: String(dogRoutine.filter((event) => event.kind === "walk").length), label: "Walks logged", icon: "🦮" },
+      { value: selectedDog.weightKg ? `${selectedDog.weightKg} kg` : "—", label: selectedDog.breed ?? "Breed not set", icon: "📈" },
+      { value: ageInDays(selectedDog.birthDate) === null ? "—" : `${Math.floor((ageInDays(selectedDog.birthDate) ?? 0) / 7)} wk`, label: "Puppy age", icon: "🎂" },
+    ].map((stat) => <Card key={stat.label} style={styles.statCard}><Text style={styles.statIcon}>{stat.icon}</Text><Text style={styles.statValue}>{stat.value}</Text><Text style={styles.statLabel}>{stat.label}</Text></Card>)}</ScrollView>
+
+    <SectionTitle title="Tools" /><View style={styles.toolsGrid}>{tools.map((tool) => <Pressable key={tool.title} accessibilityRole="button" onPress={tool.onPress} style={styles.toolTile}><Text style={styles.toolIcon}>{tool.icon}</Text><Text style={styles.toolTitle}>{tool.title}</Text><Text style={styles.toolDetail}>{tool.detail}</Text></Pressable>)}</View>
+
+    <SectionTitle title="Missions & rewards" action="See all" onAction={() => setMissionsVisible(true)} /><Card tone="sun" style={styles.missionCard}><View style={styles.missionTop}><View style={styles.missionCopy}><Text style={styles.cardTitle}>{currentTier?.name ?? "New arrival"}</Text><Text style={styles.cardBody}>{points} points{nextTier ? ` · ${nextTier.min - points} to ${nextTier.name}` : " · top tier"}</Text></View><Text style={styles.missionBadge}>🏅</Text></View><View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.round(tierProgress * 100)}%` }]} /></View><Button variant="secondary" onPress={() => setMissionsVisible(true)}>View missions</Button></Card>
+
+    <View onLayout={(event) => setChecklistY(event.nativeEvent.layout.y)}><SectionTitle title={t("profile.preparation")} /><Card style={styles.checklistCard}><Text style={styles.cardBody}>{t("profile.preparationHint")} · {completedPrep}/{PREP_CHECKLIST.length}</Text>{PREP_CHECKLIST.map((item) => { const checked = Boolean(snapshot.prepChecklist[item.id]); return <Pressable key={item.id} accessibilityRole="checkbox" accessibilityState={{ checked }} onPress={() => { if (!togglePrepItem(item.id)) Alert.alert(t("today.saveError")); }} style={styles.checkItem}><View style={[styles.checkCircle, checked && styles.checkCircleDone]}><Text style={styles.checkText}>{checked ? "✓" : ""}</Text></View><Text style={styles.checkIcon}>{item.icon}</Text><View style={styles.checkCopy}><Text style={styles.checkTitle}>{t(`prep.${item.id}`)}</Text><Text style={styles.checkDetail}>{item.detail}</Text></View></Pressable>; })}</Card></View>
+
     <SectionTitle title={t("profile.reminders")} /><Card style={styles.settingsCard}><View style={styles.settingRow}><View style={styles.settingCopy}><Text style={styles.cardTitle}>{snapshot.settings.remindersEnabled ? t("profile.notificationOn") : t("profile.notificationOff")}</Text><Text style={styles.cardBody}>{snapshot.settings.remindersEnabled ? t("today.reason") : t("notifications.body")}</Text></View><Pill active={snapshot.settings.remindersEnabled} onPress={() => void toggleReminders()}>{snapshot.settings.remindersEnabled ? t("common.on") : t("common.off")}</Pill></View><View style={styles.settingRow}><View style={styles.settingCopy}><Text style={styles.cardTitle}>{snapshot.settings.responsible ? t("today.responsible") : t("today.away")}</Text><Text style={styles.cardBody}>{t("profile.quiet")}: {snapshot.settings.quietStart}–{snapshot.settings.quietEnd}</Text></View><Pill active={snapshot.settings.responsible} onPress={toggleResponsible}>{snapshot.settings.responsible ? t("common.on") : t("common.off")}</Pill></View><View style={styles.quietRow}><Field label={`${t("profile.quiet")} ${t("profile.quietStart")}`} value={snapshot.settings.quietStart} onChangeText={(quietStart) => updateSettings({ quietStart })} placeholder="22:00" /><Field label={`${t("profile.quiet")} ${t("profile.quietEnd")}`} value={snapshot.settings.quietEnd} onChangeText={(quietEnd) => updateSettings({ quietEnd })} placeholder="07:00" /></View></Card>
     <SectionTitle title={t("profile.language")} /><Card><View style={styles.languageGrid}>{supported.map((locale) => <Pill key={locale} active={locale === snapshot.settings.locale} onPress={() => updateSettings({ locale })}>{languageNames[locale]}</Pill>)}</View><Text style={styles.hint}>{t("profile.localeHint")}</Text></Card>
     <SectionTitle title={t("profile.privacy")} /><Card style={styles.settingsCard}><Text style={styles.cardTitle}>{t("profile.local")}</Text><Text style={styles.cardBody}>{t("profile.localBody")}</Text><View style={styles.exportRow}><Button variant="secondary" onPress={() => void exportFile("csv")}>CSV</Button><Button variant="secondary" onPress={() => void exportFile("json")}>JSON</Button></View><Button variant="danger" onPress={confirmDelete}>{t("profile.delete")}</Button><Text style={styles.hint}>{t("profile.supportHint")}</Text></Card>
-    <Modal visible={addVisible} animationType="slide" transparent onRequestClose={() => setAddVisible(false)}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.overlay}><ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}><Card style={styles.modal}><Text style={styles.modalTitle}>{t("profile.addDog")}</Text><Field label={t("dog.name")} value={name} onChangeText={setName} placeholder="Milo" autoFocus /><Field label={t("dog.breed")} value={breed} onChangeText={setBreed} placeholder={t("dog.unknown")} /><DatePickerField label={t("dog.birth")} value={birthDate || null} onChange={setBirthDate} locale={snapshot.settings.locale} placeholder={t("dog.birthPlaceholder")} doneLabel={t("common.done")} maximumDate={new Date()} /><View style={styles.modalActions}><Button variant="ghost" onPress={() => setAddVisible(false)}>{t("common.cancel")}</Button><Button onPress={saveDog} disabled={!name.trim()}>{t("common.save")}</Button></View></Card></ScrollView></KeyboardAvoidingView></Modal>
+
+    <Modal visible={editorVisible} animationType="slide" transparent onRequestClose={closeEditor}><KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.overlay}><View style={styles.modalBackdrop}><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} style={styles.backdrop} onPress={closeEditor} /><ScrollView contentContainerStyle={styles.modalScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}><Card style={styles.modal}><View style={styles.modalHeader}><Text style={styles.modalTitle}>{editingDog ? t("profile.editDog") : t("profile.addDog")}</Text><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={closeEditor}><Text style={styles.close}>×</Text></Pressable></View><Pressable accessibilityRole="button" onPress={openPhotoOptions} disabled={photoBusy} style={styles.photoChooser}><Avatar emoji={draft.avatar} photoUri={draft.photoUri} size={82} /><Text style={styles.photoChooserText}>{photoBusy ? t("log.photoAdding") : draft.photoUri ? t("dog.changePhoto") : t("dog.addPhoto")}</Text></Pressable><Field label={t("dog.name")} value={draft.name} onChangeText={(name) => patchDraft({ name })} placeholder="Milo" autoFocus /><Field label={t("dog.breed")} value={draft.breed ?? ""} onChangeText={(breed) => patchDraft({ breed })} placeholder={t("dog.unknown")} /><Text style={styles.fieldLabel}>{t("dog.sex")}</Text><View style={styles.pills}><Pill active={draft.sex === "female"} onPress={() => patchDraft({ sex: "female" })}>{t("dog.female")}</Pill><Pill active={draft.sex === "male"} onPress={() => patchDraft({ sex: "male" })}>{t("dog.male")}</Pill><Pill active={draft.sex === "unknown"} onPress={() => patchDraft({ sex: "unknown" })}>{t("dog.unknown")}</Pill></View><DatePickerField label={t("dog.birth")} value={draft.birthDate} onChange={(birthDate) => patchDraft({ birthDate })} locale={snapshot.settings.locale} placeholder={t("dog.birthPlaceholder")} doneLabel={t("common.done")} maximumDate={new Date()} /><DatePickerField label={t("dog.arrival")} value={draft.arrivalDate ?? null} onChange={(arrivalDate) => patchDraft({ arrivalDate })} locale={snapshot.settings.locale} placeholder={t("dog.birthPlaceholder")} doneLabel={t("common.done")} maximumDate={new Date()} /><Field label={t("dog.weight")} value={draft.weightKg === null || draft.weightKg === undefined ? "" : String(draft.weightKg)} onChangeText={(value) => patchDraft({ weightKg: value.trim() ? Number.parseFloat(value.replace(",", ".")) : null })} keyboardType="decimal-pad" placeholder="8.5" /><Field label={t("dog.chip")} value={draft.chipNumber ?? ""} onChangeText={(chipNumber) => patchDraft({ chipNumber })} keyboardType="number-pad" placeholder="985..." /><Field label={t("dog.allergies")} value={draft.allergies ?? ""} onChangeText={(allergies) => patchDraft({ allergies })} placeholder="Food, medication, seasonal…" /><View style={styles.modalActions}><Button variant="ghost" onPress={closeEditor}>{t("common.cancel")}</Button><Button onPress={saveDog} disabled={!draft.name.trim() || photoBusy}>{t("common.save")}</Button></View></Card></ScrollView></View></KeyboardAvoidingView></Modal>
+    <Modal visible={faqVisible} animationType="slide" transparent onRequestClose={() => setFaqVisible(false)}><View style={styles.modalBackdrop}><Pressable style={styles.backdrop} onPress={() => setFaqVisible(false)} /><Card style={styles.infoModal}><View style={styles.modalHeader}><Text style={styles.modalTitle}>Puppy FAQ</Text><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={() => setFaqVisible(false)}><Text style={styles.close}>×</Text></Pressable></View><Text style={styles.cardTitle}>How often should we go out?</Text><Text style={styles.cardBody}>Use the age-based reminder as a starting point, then let clean successes gradually lengthen the interval. Always go out after waking, eating, drinking, and active play.</Text><Text style={styles.cardTitle}>What if there is an accident?</Text><Text style={styles.cardBody}>Stay neutral, clean thoroughly, and shorten the next interval. Accidents are information—not a setback.</Text><Button onPress={() => setFaqVisible(false)}>Done</Button></Card></View></Modal>
+    <Modal visible={missionsVisible} animationType="slide" transparent onRequestClose={() => setMissionsVisible(false)}><View style={styles.modalBackdrop}><Pressable style={styles.backdrop} onPress={() => setMissionsVisible(false)} /><Card style={styles.infoModal}><View style={styles.modalHeader}><Text style={styles.modalTitle}>Missions & rewards</Text><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={() => setMissionsVisible(false)}><Text style={styles.close}>×</Text></Pressable></View>{[{ name: "Safety starter", progress: completedPrep, target: 3, reward: 25 }, { name: "The doer", progress: dogCheckIns.length, target: 5, reward: 40 }, { name: "Walk explorer", progress: dogRoutine.filter((event) => event.kind === "walk").length, target: 5, reward: 50 }, { name: "Lesson learner", progress: completedLessons, target: 3, reward: 60 }].map((mission) => <View key={mission.name} style={styles.missionRow}><View style={styles.missionRowTop}><Text style={styles.cardTitle}>{mission.name}</Text><Text style={styles.cardBody}>{Math.min(mission.progress, mission.target)}/{mission.target} · +{mission.reward}</Text></View><View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.min(100, Math.round((mission.progress / mission.target) * 100))}%` }]} /></View></View>)}<Button onPress={() => setMissionsVisible(false)}>Keep going</Button></Card></View></Modal>
+    <Modal visible={reportVisible} animationType="slide" transparent onRequestClose={() => setReportVisible(false)}><View style={styles.modalBackdrop}><Pressable style={styles.backdrop} onPress={() => setReportVisible(false)} /><Card style={styles.infoModal}><View style={styles.modalHeader}><Text style={styles.modalTitle}>Care report</Text><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={() => setReportVisible(false)}><Text style={styles.close}>×</Text></Pressable></View><View style={styles.reportHeader}><Avatar emoji={selectedDog.avatar} photoUri={selectedDog.photoUri} size={58} /><View style={styles.reportCopy}><Text style={styles.cardTitle}>{selectedDog.name}</Text><Text style={styles.cardBody}>{selectedDog.breed ?? "Breed not recorded"}</Text></View></View><Text style={styles.cardBody}>Usual walks: {usualTime("walk")}</Text><Text style={styles.cardBody}>Meals: {usualTime("meal")} · Sleep: {usualTime("sleep")}</Text><Text style={styles.cardBody}>Allergies: {selectedDog.allergies ?? "None recorded"}</Text><Text style={styles.cardBody}>Outdoor potty wins: {dogEvents.filter((event) => event.location === "outside").length} · Logged moments: {dogCheckIns.length + dogRoutine.length}</Text><Button onPress={() => void shareReport()}>Share report</Button><Button variant="ghost" onPress={() => setReportVisible(false)}>Done</Button></Card></View></Modal>
   </Screen>;
 }
 
 const styles = StyleSheet.create({
-  header: { gap: 4 },
-  eyebrow: { ...typography.small, color: colors.primary, textTransform: "uppercase", letterSpacing: 1.2 },
-  title: { ...typography.display, color: colors.text },
-  subtitle: { ...typography.body, color: colors.muted, maxWidth: 340, marginTop: 4 },
-  dogRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border },
-  dogCopy: { flex: 1, gap: 2 },
-  dogName: { ...typography.heading, color: colors.text },
-  dogMeta: { ...typography.small, color: colors.muted },
-  settingsCard: { gap: spacing.md },
-  settingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md, paddingVertical: spacing.xs },
-  settingCopy: { flex: 1, gap: 2 },
-  cardTitle: { ...typography.heading, color: colors.text },
-  cardBody: { ...typography.body, color: colors.muted },
-  languageGrid: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
-  hint: { ...typography.small, color: colors.muted, marginTop: spacing.sm },
-  exportRow: { flexDirection: "row", gap: spacing.sm },
-  quietRow: { gap: spacing.sm },
-  overlay: { flex: 1, backgroundColor: "rgba(32,51,43,0.28)", justifyContent: "flex-end" },
-  modalScroll: { flexGrow: 1, justifyContent: "center", padding: spacing.lg },
-  modal: { width: "100%", maxHeight: "92%", gap: spacing.lg },
-  modalTitle: { ...typography.title, color: colors.text },
-  modalActions: { flexDirection: "row", gap: spacing.sm },
+  header: { gap: 4 }, eyebrow: { ...typography.small, color: colors.primary, textTransform: "uppercase", letterSpacing: 1.2 }, title: { ...typography.display, color: colors.text }, subtitle: { ...typography.body, color: colors.muted, maxWidth: 340, marginTop: 4 },
+  dogRow: { flexDirection: "row", alignItems: "center", gap: spacing.md, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }, dogCopy: { flex: 1, gap: 2 }, dogName: { ...typography.heading, color: colors.text }, dogMeta: { ...typography.small, color: colors.muted }, selectCircle: { width: 46, height: 34, borderRadius: 18, backgroundColor: colors.surfaceAlt, alignItems: "center", justifyContent: "center" }, selectCircleActive: { backgroundColor: colors.primary }, selectText: { ...typography.body, color: "#FFFFFF", fontWeight: "800" },
+  checklistCard: { gap: spacing.sm }, checkItem: { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: spacing.sm, borderBottomWidth: 1, borderBottomColor: colors.border }, checkCircle: { width: 27, height: 27, borderRadius: 14, borderWidth: 2, borderColor: colors.primary, alignItems: "center", justifyContent: "center" }, checkCircleDone: { backgroundColor: colors.primary }, checkText: { color: "#FFFFFF", fontWeight: "800" }, checkIcon: { fontSize: 22 }, checkCopy: { flex: 1, gap: 2 }, checkTitle: { ...typography.body, color: colors.text, fontWeight: "800" }, checkDetail: { ...typography.small, color: colors.muted }, statsRow: { gap: spacing.sm, paddingVertical: spacing.xs }, statCard: { width: 132, minHeight: 124, gap: 4, padding: spacing.md }, statIcon: { fontSize: 22 }, statValue: { ...typography.title, color: colors.text }, statLabel: { ...typography.small, color: colors.muted },
+  toolsGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }, toolTile: { width: "31%", minHeight: 118, borderRadius: 18, backgroundColor: colors.surface, padding: spacing.sm, gap: 4, ...shadow }, toolIcon: { fontSize: 23 }, toolTitle: { ...typography.small, color: colors.text, fontWeight: "800" }, toolDetail: { ...typography.small, color: colors.muted, fontSize: 10, lineHeight: 14 }, missionCard: { gap: spacing.md }, missionTop: { flexDirection: "row", alignItems: "center", gap: spacing.md }, missionCopy: { flex: 1, gap: 2 }, missionBadge: { fontSize: 34 }, progressTrack: { height: 9, borderRadius: 5, backgroundColor: "rgba(47,107,95,0.16)", overflow: "hidden" }, progressFill: { height: 9, borderRadius: 5, backgroundColor: colors.primary }, missionRow: { gap: spacing.xs }, missionRowTop: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm }, reportHeader: { flexDirection: "row", alignItems: "center", gap: spacing.md }, reportCopy: { flex: 1, gap: 2 }, infoModal: { margin: spacing.lg, gap: spacing.md, borderRadius: 24, maxHeight: "84%" },
+  settingsCard: { gap: spacing.md }, settingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md, paddingVertical: spacing.xs }, settingCopy: { flex: 1, gap: 2 }, cardTitle: { ...typography.heading, color: colors.text }, cardBody: { ...typography.body, color: colors.muted }, languageGrid: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" }, hint: { ...typography.small, color: colors.muted, marginTop: spacing.sm }, exportRow: { flexDirection: "row", gap: spacing.sm }, quietRow: { gap: spacing.sm },
+  overlay: { flex: 1 }, modalBackdrop: { flex: 1, backgroundColor: "rgba(32,51,43,0.28)", justifyContent: "flex-end" }, backdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }, modalScroll: { flexGrow: 1, justifyContent: "flex-end", paddingTop: spacing.lg }, modal: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, gap: spacing.md, paddingBottom: Platform.OS === "ios" ? spacing.xl : spacing.lg }, modalHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }, modalTitle: { ...typography.title, color: colors.text }, close: { fontSize: 33, lineHeight: 33, color: colors.muted, fontWeight: "300" }, photoChooser: { alignItems: "center", gap: spacing.sm, paddingVertical: spacing.xs }, photoChooserText: { ...typography.small, color: colors.primary, fontWeight: "800" }, fieldLabel: { ...typography.small, color: colors.text }, pills: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm }, modalActions: { flexDirection: "row", gap: spacing.sm },
 });

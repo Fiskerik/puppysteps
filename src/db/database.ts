@@ -1,5 +1,6 @@
 import * as SQLite from "expo-sqlite";
 import { Directory, Paths } from "expo-file-system";
+import { PREP_CHECKLIST } from "../content/prepChecklist";
 import type {
   AppSettings,
   AppSnapshot,
@@ -35,9 +36,11 @@ const createSchema = (): void => {
       id TEXT PRIMARY KEY NOT NULL,
       name TEXT NOT NULL,
       avatar TEXT NOT NULL,
+      photo_uri TEXT,
       birth_date TEXT,
       arrival_date TEXT,
       breed TEXT,
+      allergies TEXT,
       sex TEXT NOT NULL,
       weight_kg REAL,
       chip_number TEXT,
@@ -73,6 +76,8 @@ const createSchema = (): void => {
       dog_id TEXT NOT NULL,
       title TEXT NOT NULL,
       date TEXT NOT NULL,
+      description TEXT,
+      photo_uri TEXT,
       completed INTEGER NOT NULL DEFAULT 0,
       custom INTEGER NOT NULL DEFAULT 0
     );
@@ -88,6 +93,10 @@ const createSchema = (): void => {
       dog_id TEXT PRIMARY KEY NOT NULL,
       payload TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS prep_checklist (
+      id TEXT PRIMARY KEY NOT NULL,
+      completed INTEGER NOT NULL DEFAULT 0
+    );
   `);
 
   // `nothing` is a reserved SQLite keyword. Older builds could create a
@@ -101,6 +110,12 @@ const createSchema = (): void => {
   if (currentColumns.length && !currentColumns.includes("is_nothing")) database.execSync("ALTER TABLE check_ins ADD COLUMN is_nothing INTEGER NOT NULL DEFAULT 0;");
   if (currentColumns.length && !currentColumns.includes("notes")) database.execSync("ALTER TABLE check_ins ADD COLUMN notes TEXT;");
   if (currentColumns.length && !currentColumns.includes("photo_uri")) database.execSync("ALTER TABLE check_ins ADD COLUMN photo_uri TEXT;");
+  const dogColumns = database.getAllSync<{ name: string }>("PRAGMA table_info(dogs)").map((column) => column.name);
+  if (dogColumns.length && !dogColumns.includes("photo_uri")) database.execSync("ALTER TABLE dogs ADD COLUMN photo_uri TEXT;");
+  if (dogColumns.length && !dogColumns.includes("allergies")) database.execSync("ALTER TABLE dogs ADD COLUMN allergies TEXT;");
+  const milestoneColumns = database.getAllSync<{ name: string }>("PRAGMA table_info(milestones)").map((column) => column.name);
+  if (milestoneColumns.length && !milestoneColumns.includes("description")) database.execSync("ALTER TABLE milestones ADD COLUMN description TEXT;");
+  if (milestoneColumns.length && !milestoneColumns.includes("photo_uri")) database.execSync("ALTER TABLE milestones ADD COLUMN photo_uri TEXT;");
 };
 
 const upsertSetting = (key: string, value: string): void => {
@@ -147,11 +162,11 @@ export const initDatabase = (): void => {
 export const loadSnapshot = (): AppSnapshot => {
   initDatabase();
   const dogs = database.getAllSync<{
-    id: string; name: string; avatar: string; birth_date: string | null; arrival_date: string | null;
-    breed: string | null; sex: Dog["sex"]; weight_kg: number | null; chip_number: string | null; created_at: string;
+    id: string; name: string; avatar: string; photo_uri: string | null; birth_date: string | null; arrival_date: string | null;
+    breed: string | null; allergies: string | null; sex: Dog["sex"]; weight_kg: number | null; chip_number: string | null; created_at: string;
   }>("SELECT * FROM dogs ORDER BY created_at ASC").map((row) => ({
-    id: row.id, name: row.name, avatar: row.avatar, birthDate: row.birth_date, arrivalDate: row.arrival_date,
-    breed: row.breed, sex: row.sex, weightKg: row.weight_kg, chipNumber: row.chip_number, createdAt: row.created_at,
+    id: row.id, name: row.name, avatar: row.avatar, photoUri: row.photo_uri, birthDate: row.birth_date, arrivalDate: row.arrival_date,
+    breed: row.breed, allergies: row.allergies, sex: row.sex, weightKg: row.weight_kg, chipNumber: row.chip_number, createdAt: row.created_at,
   }));
   const checkIns = database.getAllSync<{ id: string; dog_id: string; occurred_at: string; source: ToiletCheckIn["source"]; is_nothing: number; notes: string | null; photo_uri: string | null; created_at: string }>("SELECT * FROM check_ins ORDER BY occurred_at DESC").map((row) => ({
     id: row.id, dogId: row.dog_id, occurredAt: row.occurred_at, source: row.source, nothing: row.is_nothing === 1, notes: row.notes, photoUri: row.photo_uri, createdAt: row.created_at,
@@ -160,14 +175,20 @@ export const loadSnapshot = (): AppSnapshot => {
     id: row.id, checkInId: row.check_in_id, dogId: row.dog_id, kind: row.kind, location: row.location, occurredAt: row.occurred_at,
   }));
   const routineEvents = database.getAllSync<{ id: string; dog_id: string; kind: RoutineEvent["kind"]; occurred_at: string }>("SELECT * FROM routine_events ORDER BY occurred_at DESC").map((row) => ({ id: row.id, dogId: row.dog_id, kind: row.kind, occurredAt: row.occurred_at }));
-  const milestones = database.getAllSync<{ id: string; dog_id: string; title: string; date: string; completed: number; custom: number }>("SELECT * FROM milestones ORDER BY date ASC").map((row) => ({ id: row.id, dogId: row.dog_id, title: row.title, date: row.date, completed: row.completed === 1, custom: row.custom === 1 }));
+  const milestones = database.getAllSync<{ id: string; dog_id: string; title: string; date: string; description: string | null; photo_uri: string | null; completed: number; custom: number }>("SELECT * FROM milestones ORDER BY date ASC").map((row) => ({ id: row.id, dogId: row.dog_id, title: row.title, date: row.date, description: row.description, photoUri: row.photo_uri, completed: row.completed === 1, custom: row.custom === 1 }));
   const progressRows = database.getAllSync<{ lesson_id: string; state: "not_started" | "in_progress" | "completed" }>("SELECT * FROM lesson_progress");
   const plans = database.getAllSync<{ dog_id: string; payload: string }>("SELECT * FROM reminder_plans").reduce<Record<string, ReminderPlan>>((result, row) => { result[row.dog_id] = JSON.parse(row.payload) as ReminderPlan; return result; }, {});
-  return { dogs, checkIns, eliminations, routineEvents, milestones, lessonProgress: Object.fromEntries(progressRows.map((row) => [row.lesson_id, row.state])), plans, settings: readSettings() };
+  const checklistRows = database.getAllSync<{ id: string; completed: number }>("SELECT * FROM prep_checklist");
+  const prepChecklist = Object.fromEntries(PREP_CHECKLIST.map((item) => [item.id, checklistRows.find((row) => row.id === item.id)?.completed === 1]));
+  return { dogs, checkIns, eliminations, routineEvents, milestones, lessonProgress: Object.fromEntries(progressRows.map((row) => [row.lesson_id, row.state])), plans, prepChecklist, settings: readSettings() };
 };
 
 export const insertDog = (dog: Dog): void => {
-  database.runSync("INSERT INTO dogs (id, name, avatar, birth_date, arrival_date, breed, sex, weight_kg, chip_number, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [dog.id, dog.name, dog.avatar, dog.birthDate, dog.arrivalDate, dog.breed, dog.sex, dog.weightKg, dog.chipNumber, dog.createdAt]);
+  database.runSync("INSERT INTO dogs (id, name, avatar, photo_uri, birth_date, arrival_date, breed, allergies, sex, weight_kg, chip_number, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", [dog.id, dog.name, dog.avatar, dog.photoUri, dog.birthDate, dog.arrivalDate, dog.breed, dog.allergies, dog.sex, dog.weightKg, dog.chipNumber, dog.createdAt]);
+};
+
+export const updateDog = (dog: Dog): void => {
+  database.runSync("UPDATE dogs SET name = ?, avatar = ?, photo_uri = ?, birth_date = ?, arrival_date = ?, breed = ?, allergies = ?, sex = ?, weight_kg = ?, chip_number = ? WHERE id = ?", [dog.name, dog.avatar, dog.photoUri, dog.birthDate, dog.arrivalDate, dog.breed, dog.allergies, dog.sex, dog.weightKg, dog.chipNumber, dog.id]);
 };
 
 export const insertCheckIn = (checkIn: ToiletCheckIn, events: EliminationEvent[]): void => {
@@ -184,16 +205,36 @@ export const deleteCheckIn = (checkInId: string): void => {
   });
 };
 
+export const updateCheckIn = (checkIn: ToiletCheckIn, events: EliminationEvent[]): void => {
+  database.withTransactionSync(() => {
+    database.runSync("UPDATE check_ins SET dog_id = ?, occurred_at = ?, source = ?, is_nothing = ?, notes = ?, photo_uri = ? WHERE id = ?", [checkIn.dogId, checkIn.occurredAt, checkIn.source, checkIn.nothing ? 1 : 0, checkIn.notes, checkIn.photoUri, checkIn.id]);
+    database.runSync("DELETE FROM eliminations WHERE check_in_id = ?", [checkIn.id]);
+    for (const event of events) database.runSync("INSERT INTO eliminations (id, check_in_id, dog_id, kind, location, occurred_at) VALUES (?, ?, ?, ?, ?, ?)", [event.id, event.checkInId, event.dogId, event.kind, event.location, event.occurredAt]);
+  });
+};
+
 export const insertRoutineEvent = (event: RoutineEvent): void => {
   database.runSync("INSERT INTO routine_events (id, dog_id, kind, occurred_at) VALUES (?, ?, ?, ?)", [event.id, event.dogId, event.kind, event.occurredAt]);
 };
 
+export const updateRoutineEvent = (event: RoutineEvent): void => {
+  database.runSync("UPDATE routine_events SET kind = ?, occurred_at = ? WHERE id = ?", [event.kind, event.occurredAt, event.id]);
+};
+
+export const deleteRoutineEvent = (eventId: string): void => {
+  database.runSync("DELETE FROM routine_events WHERE id = ?", [eventId]);
+};
+
 export const insertMilestone = (milestone: Milestone): void => {
-  database.runSync("INSERT INTO milestones (id, dog_id, title, date, completed, custom) VALUES (?, ?, ?, ?, ?, ?)", [milestone.id, milestone.dogId, milestone.title, milestone.date, milestone.completed ? 1 : 0, milestone.custom ? 1 : 0]);
+  database.runSync("INSERT INTO milestones (id, dog_id, title, date, description, photo_uri, completed, custom) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [milestone.id, milestone.dogId, milestone.title, milestone.date, milestone.description, milestone.photoUri, milestone.completed ? 1 : 0, milestone.custom ? 1 : 0]);
 };
 
 export const updateMilestone = (milestone: Milestone): void => {
-  database.runSync("UPDATE milestones SET title = ?, date = ?, completed = ? WHERE id = ?", [milestone.title, milestone.date, milestone.completed ? 1 : 0, milestone.id]);
+  database.runSync("UPDATE milestones SET title = ?, date = ?, description = ?, photo_uri = ?, completed = ? WHERE id = ?", [milestone.title, milestone.date, milestone.description, milestone.photoUri, milestone.completed ? 1 : 0, milestone.id]);
+};
+
+export const savePrepChecklistItem = (id: string, completed: boolean): void => {
+  database.runSync("INSERT OR REPLACE INTO prep_checklist (id, completed) VALUES (?, ?)", [id, completed ? 1 : 0]);
 };
 
 export const savePlan = (plan: ReminderPlan): void => {
@@ -210,7 +251,7 @@ export const saveLessonProgress = (lesson: Lesson, state: "not_started" | "in_pr
 
 export const clearLocalData = (): void => {
   database.withTransactionSync(() => {
-    database.execSync("DELETE FROM eliminations; DELETE FROM check_ins; DELETE FROM routine_events; DELETE FROM milestones; DELETE FROM lesson_progress; DELETE FROM reminder_plans; DELETE FROM dogs; DELETE FROM settings;");
+    database.execSync("DELETE FROM eliminations; DELETE FROM check_ins; DELETE FROM routine_events; DELETE FROM milestones; DELETE FROM lesson_progress; DELETE FROM reminder_plans; DELETE FROM prep_checklist; DELETE FROM dogs; DELETE FROM settings;");
     upsertSetting("initialized", "true");
     upsertSetting("locale", DEFAULT_SETTINGS.locale);
     upsertSetting("quietStart", DEFAULT_SETTINGS.quietStart);

@@ -11,8 +11,9 @@ const MIN_INTERVAL = 30;
 const MAX_INTERVAL = 240;
 
 const ageInterval = (ageMonths: number): number => {
-  if (ageMonths <= 2) return 45;
-  if (ageMonths <= 3) return 60;
+  if (ageMonths <= 1) return 40;
+  if (ageMonths <= 2) return 50;
+  if (ageMonths <= 3) return 70;
   if (ageMonths <= 4) return 90;
   if (ageMonths <= 6) return 120;
   if (ageMonths <= 9) return 150;
@@ -55,6 +56,12 @@ const reasonForTrigger = (kind: RoutineEvent["kind"]): ReminderPlan["reasonCode"
   return "after_play";
 };
 
+const triggerDelay = (kind: RoutineEvent["kind"]): number => {
+  if (kind === "wake") return 5;
+  if (kind === "meal" || kind === "drink") return 15;
+  return 10;
+};
+
 export const getNextReminder = ({
   dog,
   checkIns,
@@ -79,21 +86,35 @@ export const getNextReminder = ({
   const latestPee = pees[0];
   const latestPoo = poos[0];
   const ageBaseline = ageInterval(ageInMonths(dog, now));
-  const stableOutdoorPeeCount = pees
-    .filter((event) => event.location === "outside")
-    .slice(0, 3).length;
+  const outdoorPees = pees.filter((event) => event.location === "outside");
+  let cleanStreak = 0;
+  for (const event of pees) {
+    if (event.location !== "outside") break;
+    cleanStreak += 1;
+  }
+  const learnedIntervals = outdoorPees.slice(0, 8).slice(0, -1).map((event, index) => {
+    const next = outdoorPees[index + 1];
+    if (!next) return 0;
+    return Math.round(Math.abs(new Date(event.occurredAt).getTime() - new Date(next.occurredAt).getTime()) / 60_000);
+  }).filter((interval) => interval >= MIN_INTERVAL && interval <= MAX_INTERVAL);
+  const learnedBaseline = learnedIntervals.length
+    ? learnedIntervals.reduce((sum, interval) => sum + interval, 0) / learnedIntervals.length
+    : ageBaseline;
   const latestIndoorPee = pees.find((event) => event.location === "inside");
   const indoorPeeWasRecent = latestIndoorPee ? minutesSince(latestIndoorPee.occurredAt, now) < 24 * 60 : false;
-  let bladderInterval = ageBaseline;
-  if (stableOutdoorPeeCount >= 3 && !indoorPeeWasRecent) bladderInterval += 5;
+  // Blend the age curve with the dog's observed rhythm. A clean streak can
+  // lengthen the interval gradually, while a recent accident pulls it back.
+  let bladderInterval = Math.round(ageBaseline * 0.55 + learnedBaseline * 0.45);
+  if (cleanStreak >= 3 && !indoorPeeWasRecent) bladderInterval += Math.min(45, (cleanStreak - 2) * 5);
   if (latestPee?.location === "inside") bladderInterval = Math.max(MIN_INTERVAL, bladderInterval - 10);
-  if (settings.nightMode && (now.getHours() >= 22 || now.getHours() < 7)) bladderInterval = Math.max(MIN_INTERVAL, bladderInterval - 10);
+  const currentlyQuiet = inQuietHours(now, settings);
+  if (settings.nightMode && currentlyQuiet) bladderInterval = Math.min(MAX_INTERVAL, Math.round(bladderInterval * 1.35));
 
   let bladderAt = new Date((latestPee ? new Date(latestPee.occurredAt) : now).getTime() + bladderInterval * 60_000);
   let reasonCode: ReminderPlan["reasonCode"] = latestPee?.location === "inside" ? "recent_pee_accident" : "age_baseline";
-  const recentTrigger = sortByTime(dogRoutine).find((event) => minutesSince(event.occurredAt, now) < 90);
+  const recentTrigger = sortByTime(dogRoutine).find((event) => ["wake", "meal", "drink", "play", "walk"].includes(event.kind) && minutesSince(event.occurredAt, now) < 90);
   if (recentTrigger) {
-    const triggerAt = new Date(new Date(recentTrigger.occurredAt).getTime() + 15 * 60_000);
+    const triggerAt = new Date(new Date(recentTrigger.occurredAt).getTime() + triggerDelay(recentTrigger.kind) * 60_000);
     if (triggerAt > now && triggerAt < bladderAt) {
       bladderAt = triggerAt;
       reasonCode = reasonForTrigger(recentTrigger.kind);
@@ -125,7 +146,9 @@ export const getNextReminder = ({
     selectedReason = "age_baseline";
   }
 
-  selectedAt = movePastQuietHours(selectedAt, settings);
+  // Night mode spaces reminders out instead of suppressing them. Turning
+  // night mode off restores the older quiet-hours behavior.
+  if (!settings.nightMode) selectedAt = movePastQuietHours(selectedAt, settings);
   const confidence: ReminderPlan["confidence"] = dogEliminations.length < 3
     ? "starter"
     : dogEliminations.length < 10

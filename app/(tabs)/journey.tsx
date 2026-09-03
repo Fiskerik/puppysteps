@@ -1,9 +1,11 @@
 import React, { useMemo, useState } from "react";
-import { Alert, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { PUPPY_TIMELINE, ageInDays, ageLabelForDays, type TimelineStage } from "../../src/content/puppyTimeline";
 import { useAppStore } from "../../src/store/AppStore";
-import { Button, Card, EmptyState, Field, Pill, Screen, SectionTitle } from "../../src/ui/Primitives";
+import type { Milestone } from "../../src/domain/models";
+import { Button, Card, DatePickerField, EmptyState, Field, Pill, Screen, SectionTitle } from "../../src/ui/Primitives";
+import { pickLocalPhoto } from "../../src/ui/photoPicker";
 import { colors, spacing, typography } from "../../src/ui/theme";
 
 const shortDate = (iso: string, locale: string): string => new Intl.DateTimeFormat(locale, { day: "numeric", month: "short", year: "numeric" }).format(new Date(iso));
@@ -19,9 +21,14 @@ const stateForStage = (stage: TimelineStage, days: number | null): StageState =>
 
 export default function JourneyScreen() {
   const { t } = useTranslation();
-  const { snapshot, selectedDog, addMilestone, toggleMilestone } = useAppStore();
+  const { snapshot, selectedDog, addMilestone, updateMilestone, toggleMilestone } = useAppStore();
   const [visible, setVisible] = useState(false);
+  const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null);
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [milestoneDate, setMilestoneDate] = useState(new Date().toISOString());
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
   const days = ageInDays(selectedDog.birthDate);
   const currentStage = useMemo(() => PUPPY_TIMELINE.find((stage) => days !== null && days >= stage.minDays && days < stage.maxDays) ?? null, [days]);
   const [expandedByDog, setExpandedByDog] = useState<Record<string, string | null>>({});
@@ -32,13 +39,19 @@ export default function JourneyScreen() {
   const expanded = hasExpandedPreference ? expandedByDog[selectedDog.id] ?? null : currentStage?.id ?? PUPPY_TIMELINE[0]?.id ?? null;
   const setExpanded = (stageId: string | null) => setExpandedByDog((current) => ({ ...current, [selectedDog.id]: stageId }));
 
+  const openAddMilestone = () => { setEditingMilestone(null); setTitle(""); setDescription(""); setMilestoneDate(new Date().toISOString()); setPhotoUri(null); setVisible(true); };
+  const openEditMilestone = (milestone: Milestone) => { setEditingMilestone(milestone); setTitle(milestone.title); setDescription(milestone.description ?? ""); setMilestoneDate(milestone.date); setPhotoUri(milestone.photoUri); setVisible(true); };
+  const closeMilestoneEditor = () => { setVisible(false); setEditingMilestone(null); setTitle(""); setDescription(""); setPhotoUri(null); };
+  const chooseMilestonePhoto = async (source: "camera" | "library") => { setPhotoBusy(true); try { const uri = await pickLocalPhoto(source); if (uri) setPhotoUri(uri); } catch (error) { console.warn("Could not attach milestone photo", error); Alert.alert(t("log.photoError")); } finally { setPhotoBusy(false); } };
+  const openPhotoOptions = () => Alert.alert(t("journey.photo"), undefined, [{ text: t("log.takePhoto"), onPress: () => void chooseMilestonePhoto("camera") }, { text: t("log.choosePhoto"), onPress: () => void chooseMilestonePhoto("library") }, ...(photoUri ? [{ text: t("log.removePhoto"), onPress: () => setPhotoUri(null) }] : []), { text: t("common.cancel"), style: "cancel" }]);
   const save = () => {
-    if (!addMilestone(title)) {
+    const input = { title, date: milestoneDate, description: description.trim() || null, photoUri };
+    const saved = editingMilestone ? updateMilestone({ ...editingMilestone, ...input }) : addMilestone(input);
+    if (!saved) {
       Alert.alert(t("journey.saveError"));
       return;
     }
-    setTitle("");
-    setVisible(false);
+    closeMilestoneEditor();
   };
   const openSource = async (stage: TimelineStage) => {
     try {
@@ -113,21 +126,25 @@ export default function JourneyScreen() {
       })}
     </View>
 
-    <SectionTitle eyebrow="YOUR MEMORIES" title="Personal milestones" action={hasDog ? `＋ ${t("common.add")}` : undefined} onAction={() => setVisible(true)} />
-    {milestones.length ? <View style={styles.memoryList}>{milestones.map((milestone) => <Pressable key={milestone.id} accessibilityRole="checkbox" accessibilityState={{ checked: milestone.completed }} onPress={() => { if (!toggleMilestone(milestone)) Alert.alert(t("journey.saveError")); }} style={styles.memoryRow}>
+    <SectionTitle eyebrow="YOUR MEMORIES" title="Personal milestones" action={hasDog ? `＋ ${t("common.add")}` : undefined} onAction={openAddMilestone} />
+    {milestones.length ? <View style={styles.memoryList}>{milestones.map((milestone) => <Pressable key={milestone.id} accessibilityRole="checkbox" accessibilityState={{ checked: milestone.completed }} onPress={() => { if (!toggleMilestone(milestone)) Alert.alert(t("journey.saveError")); }} onLongPress={() => openEditMilestone(milestone)} delayLongPress={350} style={styles.memoryRow}>
       <View style={[styles.memoryCheck, milestone.completed && styles.memoryCheckDone]}><Text style={styles.memoryCheckText}>{milestone.completed ? "✓" : ""}</Text></View>
-      <View style={styles.memoryCopy}><Text style={styles.memoryDate}>{shortDate(milestone.date, snapshot.settings.locale)}</Text><Text style={styles.memoryTitle}>{milestone.title}</Text></View>
+      <View style={styles.memoryCopy}><Text style={styles.memoryDate}>{shortDate(milestone.date, snapshot.settings.locale)}</Text><Text style={styles.memoryTitle}>{milestone.title}</Text>{milestone.description ? <Text style={styles.memoryDescription}>{milestone.description}</Text> : null}</View>{milestone.photoUri ? <Image source={{ uri: milestone.photoUri }} style={styles.memoryPhoto} /> : null}
     </Pressable>)}</View> : <EmptyState title={t("journey.empty")} body={t("journey.emptyBody")} />}
 
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={() => setVisible(false)}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={closeMilestoneEditor}>
       <KeyboardAvoidingView style={styles.keyboardView} behavior={Platform.OS === "ios" ? "padding" : "height"} keyboardVerticalOffset={Platform.OS === "ios" ? 12 : 0}>
         <View style={styles.overlay}>
-          <Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} style={styles.backdrop} onPress={() => setVisible(false)} />
+          <Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} style={styles.backdrop} onPress={closeMilestoneEditor} />
           <View style={styles.sheet}>
             <Card style={styles.modal}>
-              <Text style={styles.modalTitle}>{t("journey.add")}</Text>
+              <View style={styles.modalHeader}><Text style={styles.modalTitle}>{editingMilestone ? t("journey.edit") : t("journey.add")}</Text><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={closeMilestoneEditor}><Text style={styles.modalClose}>×</Text></Pressable></View>
               <Field label={t("journey.addPrompt")} value={title} onChangeText={setTitle} placeholder="First puppy class" autoFocus returnKeyType="done" onSubmitEditing={title.trim() ? save : undefined} />
-              <View style={styles.modalActions}><Button variant="ghost" onPress={() => setVisible(false)}>{t("common.cancel")}</Button><Button onPress={save} disabled={!title.trim()}>{t("common.save")}</Button></View>
+              <DatePickerField label={t("journey.date")} value={milestoneDate} onChange={setMilestoneDate} locale={snapshot.settings.locale} doneLabel={t("common.done")} maximumDate={new Date()} />
+              <Field label={t("journey.description")} value={description} onChangeText={setDescription} multiline numberOfLines={3} style={styles.descriptionField} />
+              <View style={styles.photoRow}><Text style={styles.fieldLabel}>{t("journey.photo")}</Text><Button variant="secondary" onPress={() => openPhotoOptions()} disabled={photoBusy}>{photoBusy ? t("log.photoAdding") : t("journey.attachPhoto")}</Button></View>
+              {photoUri ? <View style={styles.milestonePreview}><Image source={{ uri: photoUri }} style={styles.milestoneImage} /><Pressable accessibilityRole="button" accessibilityLabel={t("log.removePhoto")} onPress={() => setPhotoUri(null)} style={styles.photoRemove}><Text style={styles.photoRemoveText}>×</Text></Pressable></View> : <Text style={styles.photoHint}>{t("journey.photoHint")}</Text>}
+              <View style={styles.modalActions}><Button variant="ghost" onPress={closeMilestoneEditor}>{t("common.cancel")}</Button><Button onPress={save} disabled={!title.trim() || photoBusy}>{t("common.save")}</Button></View>
             </Card>
           </View>
         </View>
@@ -189,11 +206,23 @@ const styles = StyleSheet.create({
   memoryCopy: { flex: 1, gap: 2 },
   memoryDate: { ...typography.small, color: colors.primary },
   memoryTitle: { ...typography.heading, color: colors.text },
+  memoryDescription: { ...typography.small, color: colors.muted, marginTop: 2 },
+  memoryPhoto: { width: 56, height: 56, borderRadius: 12, backgroundColor: colors.surfaceAlt },
   keyboardView: { flex: 1 },
   overlay: { flex: 1, backgroundColor: "rgba(32,51,43,0.28)", justifyContent: "flex-end" },
   backdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
   sheet: { width: "100%" },
   modal: { borderBottomLeftRadius: 0, borderBottomRightRadius: 0, gap: spacing.lg, paddingBottom: Platform.OS === "ios" ? spacing.xl : spacing.lg },
+  modalHeader: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   modalTitle: { ...typography.title, color: colors.text },
+  modalClose: { fontSize: 33, lineHeight: 33, color: colors.muted, fontWeight: "300" },
+  descriptionField: { minHeight: 84, textAlignVertical: "top", paddingTop: 12 },
+  fieldLabel: { ...typography.small, color: colors.text },
+  photoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  photoHint: { ...typography.small, color: colors.muted },
+  milestonePreview: { height: 150, borderRadius: 18, overflow: "hidden", backgroundColor: colors.surfaceAlt, position: "relative" },
+  milestoneImage: { width: "100%", height: "100%" },
+  photoRemove: { position: "absolute", top: 8, right: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.9)", alignItems: "center", justifyContent: "center" },
+  photoRemoveText: { fontSize: 26, lineHeight: 28, color: colors.text },
   modalActions: { flexDirection: "row", gap: spacing.sm },
 });

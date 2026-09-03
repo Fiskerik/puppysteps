@@ -7,9 +7,11 @@ export type Dog = {
   id: string;
   name: string;
   avatar: string;
+  photoUri: string | null;
   birthDate: string | null;
   arrivalDate: string | null;
   breed: string | null;
+  allergies: string | null;
   sex: "female" | "male" | "unknown";
   weightKg: number | null;
   chipNumber: string | null;
@@ -36,7 +38,7 @@ export type EliminationEvent = {
   occurredAt: string;
 };
 
-export type RoutineEventKind = "wake" | "meal" | "drink" | "play" | "car" | "sleep";
+export type RoutineEventKind = "wake" | "meal" | "drink" | "play" | "walk" | "car" | "sleep";
 
 export type RoutineEvent = {
   id: string;
@@ -50,6 +52,8 @@ export type Milestone = {
   dogId: string;
   title: string;
   date: string;
+  description: string | null;
+  photoUri: string | null;
   completed: boolean;
   custom: boolean;
 };
@@ -100,5 +104,6 @@ export type AppSnapshot = {
   milestones: Milestone[];
   lessonProgress: Record<string, "not_started" | "in_progress" | "completed">;
   plans: Record<string, ReminderPlan>;
+  prepChecklist: Record<string, boolean>;
   settings: AppSettings;
 };

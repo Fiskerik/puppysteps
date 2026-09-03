@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { Alert, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { useTranslation } from "react-i18next";
 import { LESSONS, type LessonContent } from "../../src/content/lessons";
 import { ageInDays } from "../../src/content/puppyTimeline";
@@ -47,6 +47,7 @@ const lessonDuration = (lesson: LessonContent): number => Number.parseInt(lesson
 export default function LearnScreen() {
   const { t } = useTranslation();
   const { snapshot, selectedDog, markLesson } = useAppStore();
+  const { width: windowWidth } = useWindowDimensions();
   const [query, setQuery] = useState("");
   const [expanded, setExpanded] = useState<string | null>(null);
   const [filter, setFilter] = useState<LessonFilter>("all");
@@ -74,8 +75,10 @@ export default function LearnScreen() {
   ];
   const isGrid = viewMode !== "list";
   const columns = viewMode === "grid3" ? 3 : 2;
+  const gridGap = columns === 3 ? spacing.xs : spacing.sm;
+  const gridCardWidth = (windowWidth - spacing.lg * 2 - gridGap * (columns - 1)) / columns;
   const lessonContainerStyle = isGrid
-    ? StyleSheet.flatten([styles.lessonGrid, columns === 3 ? styles.lessonGridThree : undefined])
+    ? StyleSheet.flatten([styles.lessonGrid, { gap: gridGap }])
     : styles.lessonList;
 
   return <Screen>
@@ -112,11 +115,11 @@ export default function LearnScreen() {
       const isOpen = expanded === lesson.id;
       const nextState = state === "not_started" ? "in_progress" : state === "in_progress" ? "completed" : "in_progress";
       const actionLabel = state === "not_started" ? "Start lesson" : state === "in_progress" ? "Mark complete" : t("learn.practice");
-      return <Card key={lesson.id} style={isGrid ? StyleSheet.flatten([styles.lessonCard, styles.lessonCardGrid, columns === 3 ? styles.lessonCardGridThree : undefined]) : styles.lessonCard}>
+      return <Card key={lesson.id} style={isGrid ? StyleSheet.flatten([styles.lessonCard, styles.lessonCardGrid, { width: gridCardWidth }]) : styles.lessonCard}>
         <Pressable accessibilityRole="button" accessibilityLabel={`${isOpen ? "Close" : "Open"} lesson: ${lesson.title}`} accessibilityState={{ expanded: isOpen }} onPress={() => setExpanded(isOpen ? null : lesson.id)}>
           <ImageBackground source={lesson.thumbnail} resizeMode="cover" imageStyle={styles.videoImage} style={[styles.video, isGrid && styles.videoGrid]} accessible accessibilityLabel={`Thumbnail for ${lesson.title}`}>
             <View style={styles.videoShade} />
-            <View style={styles.openBadge}><Text style={styles.openBadgeText}>{isOpen ? "Hide steps" : "Open lesson"}</Text></View>
+            {!isGrid ? <View style={styles.openBadge}><Text style={styles.openBadgeText}>{isOpen ? "Hide steps" : "Open lesson"}</Text></View> : null}
             <Text style={styles.videoLabel}>Photo guide · {lesson.duration} {t("learn.minutes")}</Text>
           </ImageBackground>
           <View style={styles.lessonTop}>
@@ -154,11 +157,9 @@ const styles = StyleSheet.create({
   toolbar: { gap: spacing.sm },
   toolbarControls: { flexDirection: "row", gap: spacing.xs, flexWrap: "wrap" },
   lessonList: { gap: spacing.lg },
-  lessonGrid: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
-  lessonGridThree: { gap: spacing.xs },
+  lessonGrid: { flexDirection: "row", flexWrap: "wrap" },
   lessonCard: { gap: spacing.md },
-  lessonCardGrid: { width: "48.5%", padding: spacing.sm, gap: spacing.sm },
-  lessonCardGridThree: { width: "32.3%", padding: spacing.xs, gap: spacing.xs },
+  lessonCardGrid: { padding: spacing.sm, gap: spacing.sm },
   video: { height: 154, borderRadius: 18, overflow: "hidden", backgroundColor: colors.primaryDark, alignItems: "center", justifyContent: "center", gap: spacing.sm },
   videoGrid: { height: 104, borderRadius: 14 },
   videoImage: { borderRadius: 18 },

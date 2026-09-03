@@ -1,11 +1,11 @@
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import React, { useMemo, useState } from "react";
-import { Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps, type TextInputProps, type TextStyle, type ViewStyle } from "react-native";
+import { Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps, type TextInputProps, type TextStyle, type ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, shadow, spacing, typography } from "./theme";
 
-export function Screen({ children, scroll = true, style }: { children: React.ReactNode; scroll?: boolean; style?: ViewStyle }) {
-  const content = scroll ? <ScrollView contentContainerStyle={[styles.scroll, style]} showsVerticalScrollIndicator={false}>{children}</ScrollView> : <View style={[styles.fill, styles.scroll, style]}>{children}</View>;
+export function Screen({ children, scroll = true, style, scrollRef }: { children: React.ReactNode; scroll?: boolean; style?: ViewStyle; scrollRef?: React.RefObject<ScrollView | null> }) {
+  const content = scroll ? <ScrollView ref={scrollRef} contentContainerStyle={[styles.scroll, style]} showsVerticalScrollIndicator={false}>{children}</ScrollView> : <View style={[styles.fill, styles.scroll, style]}>{children}</View>;
   return <SafeAreaView style={styles.safe}>{content}</SafeAreaView>;
 }
 
@@ -146,8 +146,8 @@ export function DatePickerField({ label, value, onChange, locale = "en-GB", plac
   </View>;
 }
 
-export function Avatar({ emoji, size = 58 }: { emoji: string; size?: number }) {
-  return <View accessible accessibilityLabel="Dog avatar" style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}><Text style={{ fontSize: size * 0.52 }}>{emoji}</Text></View>;
+export function Avatar({ emoji, photoUri, size = 58 }: { emoji: string; photoUri?: string | null | undefined; size?: number }) {
+  return <View accessible accessibilityLabel="Dog avatar" style={[styles.avatar, { width: size, height: size, borderRadius: size / 2 }]}>{photoUri ? <Image source={{ uri: photoUri }} style={{ width: size, height: size, borderRadius: size / 2 }} /> : <Text style={{ fontSize: size * 0.52 }}>{emoji}</Text>}</View>;
 }
 
 export function EmptyState({ title, body }: { title: string; body?: string }) {

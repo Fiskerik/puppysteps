@@ -2,7 +2,7 @@ import { getNextReminder } from "./reminderEngine";
 import type { AppSettings, Dog, EliminationEvent, RoutineEvent, ToiletCheckIn } from "./models";
 
 const now = new Date("2026-09-03T12:00:00.000Z");
-const dog: Dog = { id: "dog_test", name: "Test", avatar: "🐶", birthDate: "2026-06-03T12:00:00.000Z", arrivalDate: null, breed: null, sex: "unknown", weightKg: null, chipNumber: null, createdAt: now.toISOString() };
+const dog: Dog = { id: "dog_test", name: "Test", avatar: "🐶", photoUri: null, birthDate: "2026-06-03T12:00:00.000Z", arrivalDate: null, breed: null, allergies: null, sex: "unknown", weightKg: null, chipNumber: null, createdAt: now.toISOString() };
 const settings: AppSettings = { locale: "sv-SE", quietStart: "22:00", quietEnd: "07:00", nightMode: false, responsible: true, remindersEnabled: false };
 const elimination = (id: string, kind: EliminationEvent["kind"], location: EliminationEvent["location"], occurredAt: string): EliminationEvent => ({ id, checkInId: `checkin_${id}`, dogId: dog.id, kind, location, occurredAt });
 
