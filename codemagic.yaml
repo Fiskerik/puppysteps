@@ -5,7 +5,7 @@ workflows:
     instance_type: mac_mini_m2
 
     integrations:
-      app_store_connect: PuppystepsASC # Exact name configured in Codemagic
+      app_store_connect: codemagic-app-store-connect
 
     environment:
       node: v22.13.1
@@ -20,7 +20,7 @@ workflows:
         XCODE_WORKSPACE: Puppysteps.xcworkspace
         XCODE_SCHEME: Puppysteps
         # Optional later, for automatic build-number increments:
-        # APP_STORE_APPLE_ID: 1234567890
+        APP_STORE_APPLE_ID: 6808203305
 
     scripts:
       - name: Install dependencies
