@@ -1,0 +1,54 @@
+workflows:
+  ios-testflight:
+    name: Puppysteps iOS TestFlight
+    max_build_duration: 120
+    instance_type: mac_mini_m2
+
+    integrations:
+      app_store_connect: PuppystepsASC # Exact name configured in Codemagic
+
+    environment:
+      node: v22.13.1
+      xcode: latest
+      cocoapods: default
+
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.eaconsulting.puppysteps
+
+      vars:
+        XCODE_WORKSPACE: Puppysteps.xcworkspace
+        XCODE_SCHEME: Puppysteps
+        # Optional later, for automatic build-number increments:
+        # APP_STORE_APPLE_ID: 1234567890
+
+    scripts:
+      - name: Install dependencies
+        script: npm ci
+
+      - name: Verify project
+        script: npm run typecheck && npm run lint && npm test -- --runInBand
+
+      - name: Generate iOS project
+        script: npx expo prebuild --platform ios
+
+      - name: Install CocoaPods
+        script: cd ios && pod install
+
+      - name: Apply code signing
+        script: xcode-project use-profiles
+
+      - name: Build IPA
+        script: |
+          xcode-project build-ipa \
+            --workspace "$CM_BUILD_DIR/ios/$XCODE_WORKSPACE" \
+            --scheme "$XCODE_SCHEME"
+
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
