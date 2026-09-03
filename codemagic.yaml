@@ -43,7 +43,7 @@ workflows:
         script: cd ios && pod install
 
       - name: Apply code signing
-        script: xcode-project use-profiles
+        script: xcode-project use-profiles --project "$CM_BUILD_DIR/ios/Puppysteps.xcodeproj"
 
       - name: Build IPA
         script: |
