@@ -1,0 +1,15 @@
+Jag vill skapa en app för nya hundägare i sverige. Den ska främst vara för iOS initialt och byggas via github repo och Codemagic (Next.js). 
+Det ska vara typ som BabyJourney (barn) och ZigZag (hund) där man kan läsa om hundens första tid. 
+En huvudfunktion ska vara just kissträning för att lära hunden att bli rumsren. Man ska få en notis vid rimliga intervall för en valp som frågar om hunden har kissat. När man klickar på notisen kan man då välja (en eller flera):
+* Hunden har kissat ute
+  * Hunden har även bajsat ute
+* Kiss/Bajsolycka inne
+* Varken eller
+Väljer man att den har kissat/bajsat ute så ska det sparas som ett mönster. Skedde det en olycka, så ska mönstret uppdateras till att ge notisen lite tidigare.
+Varken eller, dvs inget har skett än, så ska den rekommendera att man går ut 15 min.
+Sedan ska man även kunna hämta data från Svenskakennelklubben/Fylla i själv baserat på hundens chipnummer. 
+Det ska finnas valpträning med instruktionsvideos på saker man ska tänka på. 
+Det ska gå följa hundens utveckling med milstolpar osv i en tidslinje. 
+Det ska finnas ras-specifika tips på träning. 
+Det ska finnas stöd för flera hundar. 
+Vad mer bör jag tänka på? Det ska främst vara för den svenska marknaden, men även översättas till engelska, tyska, franska, spanska, norska, danska, finska så småningom.
