@@ -35,6 +35,13 @@
       ],
       "expo-localization",
       "expo-sqlite",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Puppysteps uses your photos to attach a memory to a log.",
+          "cameraPermission": "Puppysteps uses your camera to attach a memory to a log."
+        }
+      ],
       "@react-native-community/datetimepicker",
       "expo-font"
     ],

@@ -23,6 +23,7 @@ export type ToiletCheckIn = {
   source: CheckInSource;
   nothing: boolean;
   notes: string | null;
+  photoUri: string | null;
   createdAt: string;
 };
 

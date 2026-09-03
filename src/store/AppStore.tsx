@@ -39,6 +39,7 @@ export type LogSelection = {
   occurredAt?: string;
   source?: ToiletCheckIn["source"];
   notes?: string | null;
+  photoUri?: string | null;
 };
 
 export type StoreContextValue = {
@@ -97,7 +98,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const logCheckIn = useCallback((selection: LogSelection): boolean => {
     const occurredAt = selection.occurredAt ?? new Date().toISOString();
-    const checkIn: ToiletCheckIn = { id: makeId("checkin"), dogId: selectedDogId, occurredAt, source: selection.source ?? "manual", nothing: selection.nothing || (!selection.pee && !selection.poo), notes: selection.notes ?? null, createdAt: new Date().toISOString() };
+    const checkIn: ToiletCheckIn = { id: makeId("checkin"), dogId: selectedDogId, occurredAt, source: selection.source ?? "manual", nothing: selection.nothing || (!selection.pee && !selection.poo), notes: selection.notes ?? null, photoUri: selection.photoUri ?? null, createdAt: new Date().toISOString() };
     const events: EliminationEvent[] = [];
     if (!checkIn.nothing && selection.pee) events.push({ id: makeId("pee"), checkInId: checkIn.id, dogId: selectedDogId, kind: "pee", location: selection.pee, occurredAt });
     if (!checkIn.nothing && selection.poo) events.push({ id: makeId("poo"), checkInId: checkIn.id, dogId: selectedDogId, kind: "poo", location: selection.poo, occurredAt });

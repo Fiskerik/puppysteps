@@ -15,7 +15,7 @@ describe("getNextReminder", () => {
   });
 
   it("creates a 15 minute follow-up for nothing yet", () => {
-    const checkIn: ToiletCheckIn = { id: "checkin_nothing", dogId: dog.id, occurredAt: now.toISOString(), source: "manual", nothing: true, notes: null, createdAt: now.toISOString() };
+    const checkIn: ToiletCheckIn = { id: "checkin_nothing", dogId: dog.id, occurredAt: now.toISOString(), source: "manual", nothing: true, notes: null, photoUri: null, createdAt: now.toISOString() };
     const plan = getNextReminder({ dog, checkIns: [checkIn], eliminations: [], routineEvents: [], settings, now });
     expect(plan.reasonCode).toBe("follow_up");
     expect(Math.round((new Date(plan.at).getTime() - now.getTime()) / 60_000)).toBe(15);

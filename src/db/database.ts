@@ -1,4 +1,5 @@
 import * as SQLite from "expo-sqlite";
+import { Directory, Paths } from "expo-file-system";
 import type {
   AppSettings,
   AppSnapshot,
@@ -47,8 +48,9 @@ const createSchema = (): void => {
       dog_id TEXT NOT NULL,
       occurred_at TEXT NOT NULL,
       source TEXT NOT NULL,
-      nothing INTEGER NOT NULL DEFAULT 0,
+      is_nothing INTEGER NOT NULL DEFAULT 0,
       notes TEXT,
+      photo_uri TEXT,
       created_at TEXT NOT NULL
     );
     CREATE TABLE IF NOT EXISTS eliminations (
@@ -87,6 +89,18 @@ const createSchema = (): void => {
       payload TEXT NOT NULL
     );
   `);
+
+  // `nothing` is a reserved SQLite keyword. Older builds could create a
+  // partially initialized database before reaching this table, so repair any
+  // legacy columns and add fields introduced after the first release.
+  const checkInColumns = database.getAllSync<{ name: string }>("PRAGMA table_info(check_ins)").map((column) => column.name);
+  if (checkInColumns.length && checkInColumns.includes("nothing") && !checkInColumns.includes("is_nothing")) {
+    database.execSync('ALTER TABLE check_ins RENAME COLUMN "nothing" TO is_nothing;');
+  }
+  const currentColumns = database.getAllSync<{ name: string }>("PRAGMA table_info(check_ins)").map((column) => column.name);
+  if (currentColumns.length && !currentColumns.includes("is_nothing")) database.execSync("ALTER TABLE check_ins ADD COLUMN is_nothing INTEGER NOT NULL DEFAULT 0;");
+  if (currentColumns.length && !currentColumns.includes("notes")) database.execSync("ALTER TABLE check_ins ADD COLUMN notes TEXT;");
+  if (currentColumns.length && !currentColumns.includes("photo_uri")) database.execSync("ALTER TABLE check_ins ADD COLUMN photo_uri TEXT;");
 };
 
 const upsertSetting = (key: string, value: string): void => {
@@ -139,8 +153,8 @@ export const loadSnapshot = (): AppSnapshot => {
     id: row.id, name: row.name, avatar: row.avatar, birthDate: row.birth_date, arrivalDate: row.arrival_date,
     breed: row.breed, sex: row.sex, weightKg: row.weight_kg, chipNumber: row.chip_number, createdAt: row.created_at,
   }));
-  const checkIns = database.getAllSync<{ id: string; dog_id: string; occurred_at: string; source: ToiletCheckIn["source"]; nothing: number; notes: string | null; created_at: string }>("SELECT * FROM check_ins ORDER BY occurred_at DESC").map((row) => ({
-    id: row.id, dogId: row.dog_id, occurredAt: row.occurred_at, source: row.source, nothing: row.nothing === 1, notes: row.notes, createdAt: row.created_at,
+  const checkIns = database.getAllSync<{ id: string; dog_id: string; occurred_at: string; source: ToiletCheckIn["source"]; is_nothing: number; notes: string | null; photo_uri: string | null; created_at: string }>("SELECT * FROM check_ins ORDER BY occurred_at DESC").map((row) => ({
+    id: row.id, dogId: row.dog_id, occurredAt: row.occurred_at, source: row.source, nothing: row.is_nothing === 1, notes: row.notes, photoUri: row.photo_uri, createdAt: row.created_at,
   }));
   const eliminations = database.getAllSync<{ id: string; check_in_id: string; dog_id: string; kind: EliminationEvent["kind"]; location: EliminationEvent["location"]; occurred_at: string }>("SELECT * FROM eliminations ORDER BY occurred_at DESC").map((row) => ({
     id: row.id, checkInId: row.check_in_id, dogId: row.dog_id, kind: row.kind, location: row.location, occurredAt: row.occurred_at,
@@ -158,7 +172,7 @@ export const insertDog = (dog: Dog): void => {
 
 export const insertCheckIn = (checkIn: ToiletCheckIn, events: EliminationEvent[]): void => {
   database.withTransactionSync(() => {
-    database.runSync("INSERT INTO check_ins (id, dog_id, occurred_at, source, nothing, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)", [checkIn.id, checkIn.dogId, checkIn.occurredAt, checkIn.source, checkIn.nothing ? 1 : 0, checkIn.notes, checkIn.createdAt]);
+    database.runSync("INSERT INTO check_ins (id, dog_id, occurred_at, source, is_nothing, notes, photo_uri, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", [checkIn.id, checkIn.dogId, checkIn.occurredAt, checkIn.source, checkIn.nothing ? 1 : 0, checkIn.notes, checkIn.photoUri, checkIn.createdAt]);
     for (const event of events) database.runSync("INSERT INTO eliminations (id, check_in_id, dog_id, kind, location, occurred_at) VALUES (?, ?, ?, ?, ?, ?)", [event.id, event.checkInId, event.dogId, event.kind, event.location, event.occurredAt]);
   });
 };
@@ -206,6 +220,14 @@ export const clearLocalData = (): void => {
     upsertSetting("remindersEnabled", "false");
     upsertSetting("english_default_v1", "true");
   });
+  // Photos are copied into the app's document directory so they remain linked
+  // to their logs. Remove those files when the user explicitly clears local data.
+  try {
+    const mediaDirectory = new Directory(Paths.document, "puppysteps-photos");
+    if (mediaDirectory.exists) mediaDirectory.delete();
+  } catch (error) {
+    console.warn("Could not clear attached photos", error);
+  }
 };
 
 export const exportCsv = (snapshot: AppSnapshot): string => {

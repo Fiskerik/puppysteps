@@ -1,7 +1,10 @@
 import React, { useMemo, useState } from "react";
-import { Alert, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Image, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
+import * as ImagePicker from "expo-image-picker";
+import { Directory, File, Paths } from "expo-file-system";
 import { useAppStore, type LogSelection } from "../store/AppStore";
+import { makeId } from "../db/database";
 import { Button, Card, DatePickerField, Field, Pill } from "./Primitives";
 import { colors, spacing, typography } from "./theme";
 
@@ -15,13 +18,63 @@ export function LogSheet({ visible, onClose, onSaved }: Props) {
   const [nothing, setNothing] = useState(false);
   const [time, setTime] = useState(new Date().toISOString());
   const [notes, setNotes] = useState("");
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
 
   const hasSelection = nothing || Boolean(pee || poo);
-  const reset = () => { setPee(null); setPoo(null); setNothing(false); setTime(new Date().toISOString()); setNotes(""); };
+  const reset = () => { setPee(null); setPoo(null); setNothing(false); setTime(new Date().toISOString()); setNotes(""); setPhotoUri(null); };
   const selectNothing = () => { setNothing(true); setPee(null); setPoo(null); };
+  const persistPhoto = async (uri: string): Promise<string> => {
+    try {
+      const directory = new Directory(Paths.document, "puppysteps-photos");
+      directory.create({ intermediates: true, idempotent: true });
+      const source = new File(uri);
+      const rawExtension = source.extension || ".jpg";
+      const extension = rawExtension.startsWith(".") ? rawExtension : `.${rawExtension}`;
+      const destination = new File(directory, `${makeId("photo")}${extension}`);
+      await source.copy(destination);
+      return destination.uri;
+    } catch (error) {
+      // Keep the picker URI as a fallback. It is still useful for the current
+      // session if the device refuses a document-directory copy.
+      console.warn("Could not copy attached photo", error);
+      return uri;
+    }
+  };
+  const choosePhoto = async (source: "camera" | "library") => {
+    setPhotoBusy(true);
+    try {
+      const permission = source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(t("log.photoPermission"));
+        return;
+      }
+      const result = source === "camera"
+        ? await ImagePicker.launchCameraAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [4, 3], quality: 0.8 })
+        : await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], allowsEditing: true, aspect: [4, 3], quality: 0.8 });
+      const uri = result.canceled ? null : result.assets?.[0]?.uri;
+      if (uri) setPhotoUri(await persistPhoto(uri));
+    } catch (error) {
+      console.warn("Could not attach photo", error);
+      Alert.alert(t("log.photoError"));
+    } finally {
+      setPhotoBusy(false);
+    }
+  };
+  const openPhotoOptions = () => {
+    const options: { text: string; onPress: () => void; style?: "default" | "cancel" | "destructive" }[] = [
+      { text: t("log.takePhoto"), onPress: () => void choosePhoto("camera") },
+      { text: t("log.choosePhoto"), onPress: () => void choosePhoto("library") },
+    ];
+    if (photoUri) options.push({ text: t("log.removePhoto"), onPress: () => setPhotoUri(null) });
+    options.push({ text: t("common.cancel"), onPress: () => undefined, style: "cancel" });
+    Alert.alert(t("log.attachPhoto"), t("log.attachPhotoBody"), options);
+  };
   const save = () => {
     if (!hasSelection) return;
-    const saved = logCheckIn({ pee, poo, nothing, occurredAt: time, notes: notes.trim() || null, source: "manual" });
+    const saved = logCheckIn({ pee, poo, nothing, occurredAt: time, notes: notes.trim() || null, photoUri, source: "manual" });
     if (!saved) {
       Alert.alert(t("log.saveError"));
       return;
@@ -42,10 +95,14 @@ export function LogSheet({ visible, onClose, onSaved }: Props) {
       <View style={styles.pills}><Pill active={pee === "outside"} onPress={() => { setNothing(false); setPee(pee === "outside" ? null : "outside"); }}>{t("log.outside")}</Pill><Pill active={pee === "inside"} onPress={() => { setNothing(false); setPee(pee === "inside" ? null : "inside"); }}>{t("log.inside")}</Pill></View>
       <Text style={styles.groupLabel}>{functionLabels.poo}</Text>
       <View style={styles.pills}><Pill active={poo === "outside"} onPress={() => { setNothing(false); setPoo(poo === "outside" ? null : "outside"); }}>{t("log.outside")}</Pill><Pill active={poo === "inside"} onPress={() => { setNothing(false); setPoo(poo === "inside" ? null : "inside"); }}>{t("log.inside")}</Pill></View>
-      <Pressable accessibilityRole="radio" accessibilityState={{ selected: nothing }} onPress={selectNothing} style={[styles.nothing, nothing && styles.nothingSelected]}><Text style={styles.nothingIcon}>○</Text><View><Text style={styles.nothingTitle}>{t("log.nothing")}</Text><Text style={styles.nothingBody}>{t("log.followUp")}</Text></View></Pressable>
+      <Pressable accessibilityRole="radio" accessibilityState={{ selected: nothing }} onPress={selectNothing} style={[styles.nothing, nothing && styles.nothingSelected]}><Text style={[styles.nothingIcon, nothing && styles.nothingIconSelected]}>{nothing ? "✓" : "○"}</Text><View><Text style={styles.nothingTitle}>{t("log.nothing")}</Text><Text style={styles.nothingBody}>{t("log.followUp")}</Text></View></Pressable>
       <DatePickerField label={t("log.time")} value={time} onChange={setTime} locale={snapshot.settings.locale} mode="datetime" maximumDate={new Date()} placeholder={t("log.timePlaceholder")} doneLabel={t("common.done")} />
       <Field label={t("log.notes")} value={notes} onChangeText={setNotes} multiline numberOfLines={2} style={styles.notes} />
-      <View style={styles.actions}><Button variant="ghost" onPress={onClose}>{t("common.cancel")}</Button><Button onPress={save} disabled={!hasSelection}>{t("common.save")}</Button></View>
+      <View style={styles.photoSection}>
+        <View style={styles.photoHeader}><Text style={styles.groupLabel}>{t("log.photo")}</Text><Pressable accessibilityRole="button" onPress={openPhotoOptions} disabled={photoBusy} style={styles.photoButton}><Text style={styles.photoButtonText}>{photoBusy ? t("log.photoAdding") : photoUri ? t("log.changePhoto") : t("log.attachPhoto")}</Text></Pressable></View>
+        {photoUri ? <View style={styles.photoPreview}><Image source={{ uri: photoUri }} style={styles.photoImage} /><Pressable accessibilityRole="button" accessibilityLabel={t("log.removePhoto")} onPress={() => setPhotoUri(null)} style={styles.photoRemove}><Text style={styles.photoRemoveText}>×</Text></Pressable></View> : <Text style={styles.photoHint}>{t("log.photoHint")}</Text>}
+      </View>
+      <View style={styles.actions}><Button variant="ghost" onPress={onClose}>{t("common.cancel")}</Button><Button onPress={save} disabled={!hasSelection || photoBusy}>{t("common.save")}</Button></View>
     </ScrollView>
     </KeyboardAvoidingView>
   </Modal>;
@@ -66,8 +123,18 @@ const styles = StyleSheet.create({
   nothing: { borderRadius: 18, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface, padding: spacing.md, flexDirection: "row", gap: spacing.md, alignItems: "center" },
   nothingSelected: { borderColor: colors.primary, backgroundColor: colors.moss },
   nothingIcon: { fontSize: 25, color: colors.primary },
+  nothingIconSelected: { fontWeight: "800", color: colors.primaryDark },
   nothingTitle: { ...typography.body, color: colors.text, fontWeight: "800" },
   nothingBody: { ...typography.small, color: colors.muted, marginTop: 2 },
   notes: { minHeight: 72, textAlignVertical: "top", paddingTop: 12 },
+  photoSection: { gap: spacing.sm },
+  photoHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.sm },
+  photoButton: { borderRadius: 15, backgroundColor: colors.moss, paddingHorizontal: spacing.md, paddingVertical: 10 },
+  photoButtonText: { ...typography.small, color: colors.primaryDark, fontWeight: "800" },
+  photoHint: { ...typography.small, color: colors.muted },
+  photoPreview: { height: 150, borderRadius: 18, overflow: "hidden", backgroundColor: colors.surfaceAlt, position: "relative" },
+  photoImage: { width: "100%", height: "100%" },
+  photoRemove: { position: "absolute", top: 8, right: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.9)", alignItems: "center", justifyContent: "center" },
+  photoRemoveText: { fontSize: 26, lineHeight: 28, color: colors.text },
   actions: { flexDirection: "row", gap: spacing.sm },
 });
