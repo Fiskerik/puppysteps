@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Puppysteps",
+    "slug": "puppysteps",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "platforms": ["ios", "android"],
+    "scheme": "puppysteps",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.eaconsulting.puppysteps",
+      "infoPlist": {
+        "NSUserNotificationsUsageDescription": "Puppysteps uses reminders to help you take your puppy out at the right time."
+      }
+    },
+    "android": {
+      "package": "com.puppysteps.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#F7F4ED"
+      }
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-notifications",
+        {
+          "color": "#2F6B5F"
+        }
+      ],
+      "expo-localization",
+      "expo-sqlite"
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
