@@ -30,7 +30,7 @@ import {
   saveSettings,
   updateMilestone,
 } from "../db/database";
-import { cancelReminder, scheduleReminder } from "../notifications/scheduler";
+import { cancelAllReminders, cancelReminder, scheduleReminder } from "../notifications/scheduler";
 
 export type LogSelection = {
   pee: EliminationEvent["location"] | null;
@@ -47,18 +47,18 @@ export type StoreContextValue = {
   selectedDog: Dog;
   setSelectedDogId: (dogId: string) => void;
   addDog: (input: Pick<Dog, "name" | "breed" | "birthDate" | "avatar">) => boolean;
-  logCheckIn: (selection: LogSelection) => void;
-  removeCheckIn: (checkInId: string) => void;
-  addRoutine: (kind: RoutineEvent["kind"]) => void;
-  addMilestone: (title: string) => void;
-  toggleMilestone: (milestone: Milestone) => void;
-  markLesson: (lesson: Lesson, state: "in_progress" | "completed") => void;
+  logCheckIn: (selection: LogSelection) => boolean;
+  removeCheckIn: (checkInId: string) => boolean;
+  addRoutine: (kind: RoutineEvent["kind"]) => boolean;
+  addMilestone: (title: string) => boolean;
+  toggleMilestone: (milestone: Milestone) => boolean;
+  markLesson: (lesson: Lesson, state: "in_progress" | "completed") => boolean;
   updateSettings: (patch: Partial<AppSettings>) => void;
   enableReminders: () => Promise<boolean>;
   toggleResponsible: () => void;
   planFor: (dogId: string) => ReminderPlan | null;
   exportData: (format: "csv" | "json") => string;
-  deleteLocalData: () => void;
+  deleteLocalData: () => Promise<void>;
 };
 
 const createFallbackSnapshot = (): AppSnapshot => ({
@@ -93,47 +93,66 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     return { ...current, plans };
   }, []);
 
-  const persistAndRefresh = useCallback((loadFromDb = true) => {
-    setSnapshot((current) => {
-      let next = current;
-      if (loadFromDb) {
-        try { next = loadSnapshot(); } catch (error) { console.warn("Could not reload local data", error); }
-      }
-      return recompute(next);
-    });
-  }, [recompute]);
-
   useEffect(() => { void i18n.changeLanguage(snapshot.settings.locale); }, [snapshot.settings.locale]);
 
-  const logCheckIn = useCallback((selection: LogSelection) => {
+  const logCheckIn = useCallback((selection: LogSelection): boolean => {
     const occurredAt = selection.occurredAt ?? new Date().toISOString();
-    if (selection.nothing || (!selection.pee && !selection.poo)) {
-      const checkIn: ToiletCheckIn = { id: makeId("checkin"), dogId: selectedDogId, occurredAt, source: selection.source ?? "manual", nothing: true, notes: selection.notes ?? null, createdAt: new Date().toISOString() };
-      try { insertCheckIn(checkIn, []); } catch (error) { console.warn("Could not save check-in", error); }
-    } else {
-      const checkIn: ToiletCheckIn = { id: makeId("checkin"), dogId: selectedDogId, occurredAt, source: selection.source ?? "manual", nothing: false, notes: selection.notes ?? null, createdAt: new Date().toISOString() };
-      const events: EliminationEvent[] = [];
-      if (selection.pee) events.push({ id: makeId("pee"), checkInId: checkIn.id, dogId: selectedDogId, kind: "pee", location: selection.pee, occurredAt });
-      if (selection.poo) events.push({ id: makeId("poo"), checkInId: checkIn.id, dogId: selectedDogId, kind: "poo", location: selection.poo, occurredAt });
-      try { insertCheckIn(checkIn, events); } catch (error) { console.warn("Could not save check-in", error); }
+    const checkIn: ToiletCheckIn = { id: makeId("checkin"), dogId: selectedDogId, occurredAt, source: selection.source ?? "manual", nothing: selection.nothing || (!selection.pee && !selection.poo), notes: selection.notes ?? null, createdAt: new Date().toISOString() };
+    const events: EliminationEvent[] = [];
+    if (!checkIn.nothing && selection.pee) events.push({ id: makeId("pee"), checkInId: checkIn.id, dogId: selectedDogId, kind: "pee", location: selection.pee, occurredAt });
+    if (!checkIn.nothing && selection.poo) events.push({ id: makeId("poo"), checkInId: checkIn.id, dogId: selectedDogId, kind: "poo", location: selection.poo, occurredAt });
+    try {
+      insertCheckIn(checkIn, events);
+    } catch (error) {
+      console.warn("Could not save check-in", error);
+      return false;
     }
-    persistAndRefresh();
-  }, [persistAndRefresh, selectedDogId]);
+    // Update the in-memory snapshot from the same objects written to SQLite.
+    // This avoids a stale reload racing the synchronous SQLite transaction.
+    setSnapshot((current) => recompute({ ...current, checkIns: [checkIn, ...current.checkIns], eliminations: [...events, ...current.eliminations] }));
+    return true;
+  }, [recompute, selectedDogId]);
 
   const addDog = useCallback((input: Pick<Dog, "name" | "breed" | "birthDate" | "avatar">): boolean => {
     if (snapshot.dogs.length >= 2 || !input.name.trim()) return false;
     const dog: Dog = { id: makeId("dog"), name: input.name.trim(), avatar: input.avatar, birthDate: input.birthDate, arrivalDate: new Date().toISOString(), breed: input.breed?.trim() || null, sex: "unknown", weightKg: null, chipNumber: null, createdAt: new Date().toISOString() };
     try { insertDog(dog); } catch (error) { console.warn("Could not save dog", error); return false; }
     setSelectedDogId(dog.id);
-    persistAndRefresh();
+    // Reflect the committed row immediately; the next provider mount reloads it
+    // from SQLite through loadSnapshot().
+    setSnapshot((current) => recompute({ ...current, dogs: [...current.dogs, dog] }));
     return true;
-  }, [persistAndRefresh, snapshot.dogs.length]);
+  }, [recompute, snapshot.dogs.length]);
 
-  const removeCheckIn = useCallback((checkInId: string) => { try { deleteCheckIn(checkInId); } catch (error) { console.warn("Could not delete check-in", error); } persistAndRefresh(); }, [persistAndRefresh]);
-  const addRoutine = useCallback((kind: RoutineEvent["kind"]) => { try { insertRoutineEvent({ id: makeId("routine"), dogId: selectedDogId, kind, occurredAt: new Date().toISOString() }); } catch (error) { console.warn("Could not save routine", error); } persistAndRefresh(); }, [persistAndRefresh, selectedDogId]);
-  const addMilestone = useCallback((title: string) => { if (!title.trim()) return; const milestone: Milestone = { id: makeId("milestone"), dogId: selectedDogId, title: title.trim(), date: new Date().toISOString(), completed: true, custom: true }; try { insertMilestone(milestone); } catch (error) { console.warn("Could not save milestone", error); } persistAndRefresh(); }, [persistAndRefresh, selectedDogId]);
-  const toggleMilestone = useCallback((milestone: Milestone) => { try { updateMilestone({ ...milestone, completed: !milestone.completed }); } catch (error) { console.warn("Could not update milestone", error); } persistAndRefresh(); }, [persistAndRefresh]);
-  const markLesson = useCallback((lesson: Lesson, state: "in_progress" | "completed") => { try { saveLessonProgress(lesson, state); } catch (error) { console.warn("Could not save lesson progress", error); } setSnapshot((current) => ({ ...current, lessonProgress: { ...current.lessonProgress, [lesson.id]: state } })); }, []);
+  const removeCheckIn = useCallback((checkInId: string): boolean => {
+    try { deleteCheckIn(checkInId); } catch (error) { console.warn("Could not delete check-in", error); return false; }
+    setSnapshot((current) => recompute({ ...current, checkIns: current.checkIns.filter((item) => item.id !== checkInId), eliminations: current.eliminations.filter((item) => item.checkInId !== checkInId) }));
+    return true;
+  }, [recompute]);
+  const addRoutine = useCallback((kind: RoutineEvent["kind"]): boolean => {
+    const event: RoutineEvent = { id: makeId("routine"), dogId: selectedDogId, kind, occurredAt: new Date().toISOString() };
+    try { insertRoutineEvent(event); } catch (error) { console.warn("Could not save routine", error); return false; }
+    setSnapshot((current) => recompute({ ...current, routineEvents: [event, ...current.routineEvents] }));
+    return true;
+  }, [recompute, selectedDogId]);
+  const addMilestone = useCallback((title: string): boolean => {
+    if (!title.trim()) return false;
+    const milestone: Milestone = { id: makeId("milestone"), dogId: selectedDogId, title: title.trim(), date: new Date().toISOString(), completed: true, custom: true };
+    try { insertMilestone(milestone); } catch (error) { console.warn("Could not save milestone", error); return false; }
+    setSnapshot((current) => ({ ...current, milestones: [...current.milestones, milestone] }));
+    return true;
+  }, [selectedDogId]);
+  const toggleMilestone = useCallback((milestone: Milestone): boolean => {
+    const updated = { ...milestone, completed: !milestone.completed };
+    try { updateMilestone(updated); } catch (error) { console.warn("Could not update milestone", error); return false; }
+    setSnapshot((current) => ({ ...current, milestones: current.milestones.map((item) => item.id === updated.id ? updated : item) }));
+    return true;
+  }, []);
+  const markLesson = useCallback((lesson: Lesson, state: "in_progress" | "completed"): boolean => {
+    try { saveLessonProgress(lesson, state); } catch (error) { console.warn("Could not save lesson progress", error); return false; }
+    setSnapshot((current) => ({ ...current, lessonProgress: { ...current.lessonProgress, [lesson.id]: state } }));
+    return true;
+  }, []);
 
   const updateSettings = useCallback((patch: Partial<AppSettings>) => {
     const nextSettings = { ...snapshot.settings, ...patch };
@@ -148,7 +167,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   }, [updateSettings]);
 
   const toggleResponsible = useCallback(() => updateSettings({ responsible: !snapshot.settings.responsible }), [snapshot.settings.responsible, updateSettings]);
-  const deleteData = useCallback(() => { try { clearLocalData(); } catch (error) { console.warn("Could not clear local data", error); } setSelectedDogId(""); setSnapshot({ dogs: [], checkIns: [], eliminations: [], routineEvents: [], milestones: [], lessonProgress: {}, plans: {}, settings: { ...DEFAULT_SETTINGS } }); }, []);
+  const deleteData = useCallback(async () => {
+    await cancelAllReminders();
+    try { clearLocalData(); } catch (error) { console.warn("Could not clear local data", error); return; }
+    setSelectedDogId("");
+    setSnapshot({ dogs: [], checkIns: [], eliminations: [], routineEvents: [], milestones: [], lessonProgress: {}, plans: {}, settings: { ...DEFAULT_SETTINGS } });
+  }, []);
 
   useEffect(() => {
     if (!snapshot.settings.remindersEnabled || !snapshot.settings.responsible) {

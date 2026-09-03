@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import type { Dog, ReminderPlan } from "../domain/models";
+import { i18n } from "../i18n";
 
 const scheduledIds = new Map<string, string>();
 
@@ -27,8 +28,8 @@ export const scheduleReminder = async (dog: Dog, plan: ReminderPlan, enabled: bo
   if (previousId) await Notifications.cancelScheduledNotificationAsync(previousId).catch(() => undefined);
   const id = await Notifications.scheduleNotificationAsync({
     content: {
-      title: `Dags att kolla ${dog.name}`,
-      body: "Behöver ni gå ut? Tryck för att logga.",
+      title: i18n.t("notifications.reminderTitle", { name: dog.name }),
+      body: i18n.t("notifications.reminderBody"),
       data: { dogId: dog.id, url: "/(tabs)/log" },
     },
     trigger: {
@@ -44,4 +45,9 @@ export const cancelReminder = async (dogId: string): Promise<void> => {
   if (!id) return;
   await Notifications.cancelScheduledNotificationAsync(id).catch(() => undefined);
   scheduledIds.delete(dogId);
+};
+
+export const cancelAllReminders = async (): Promise<void> => {
+  if (Platform.OS !== "web") await Notifications.cancelAllScheduledNotificationsAsync().catch(() => undefined);
+  scheduledIds.clear();
 };

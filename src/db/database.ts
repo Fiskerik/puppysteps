@@ -19,7 +19,7 @@ export const makeId = (prefix: string): string => {
 };
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  locale: "sv-SE",
+  locale: "en-GB",
   quietStart: "22:00",
   quietEnd: "07:00",
   nightMode: true,
@@ -118,6 +118,15 @@ export const initDatabase = (): void => {
     upsertSetting("responsible", String(DEFAULT_SETTINGS.responsible));
     upsertSetting("remindersEnabled", String(DEFAULT_SETTINGS.remindersEnabled));
     upsertSetting("initialized", "true");
+  } else {
+    // Existing MVP databases were initialized with Swedish as the default.
+    // Migrate that one-time default while preserving any later language choice.
+    const localeDefaultVersion = database.getFirstSync<{ value: string }>("SELECT value FROM settings WHERE key = 'english_default_v1'");
+    if (localeDefaultVersion?.value !== "true") {
+      const locale = database.getFirstSync<{ value: string }>("SELECT value FROM settings WHERE key = 'locale'");
+      if (!locale?.value || locale.value === "sv-SE") upsertSetting("locale", DEFAULT_SETTINGS.locale);
+      upsertSetting("english_default_v1", "true");
+    }
   }
 };
 
@@ -195,6 +204,7 @@ export const clearLocalData = (): void => {
     upsertSetting("nightMode", String(DEFAULT_SETTINGS.nightMode));
     upsertSetting("responsible", String(DEFAULT_SETTINGS.responsible));
     upsertSetting("remindersEnabled", "false");
+    upsertSetting("english_default_v1", "true");
   });
 };
 

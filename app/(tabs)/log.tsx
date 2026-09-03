@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, Text, View } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { router, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { useAppStore } from "../../src/store/AppStore";
 import { Button, Card, EmptyState, Pill, Screen, SectionTitle } from "../../src/ui/Primitives";
@@ -18,13 +18,13 @@ export default function LogScreen() {
   const dogEvents = useMemo(() => snapshot.eliminations.filter((event) => event.dogId === selectedDogId), [selectedDogId, snapshot.eliminations]);
   const dogCheckIns = useMemo(() => snapshot.checkIns.filter((checkIn) => checkIn.dogId === selectedDogId), [selectedDogId, snapshot.checkIns]);
   const hasDog = selectedDog.id !== "no-dog";
-  const deleteEvent = (checkInId: string) => Alert.alert(t("log.deleteConfirm"), t("log.deleteConfirm"), [{ text: t("common.cancel"), style: "cancel" }, { text: t("log.deleteAction"), style: "destructive", onPress: () => removeCheckIn(checkInId) }]);
+  const deleteEvent = (checkInId: string) => Alert.alert(t("log.deleteConfirm"), undefined, [{ text: t("common.cancel"), style: "cancel" }, { text: t("log.deleteAction"), style: "destructive", onPress: () => { if (!removeCheckIn(checkInId)) Alert.alert(t("today.saveError")); } }]);
   return <Screen>
     <View style={styles.header}><View><Text style={styles.eyebrow}>{t("nav.log")}</Text><Text style={styles.title}>{selectedDog.name}</Text><Text style={styles.subtle}>{t("today.subtle")}</Text></View>{hasDog ? <Pill onPress={() => setVisible(true)}>＋ {t("common.add")}</Pill> : null}</View>
     <View style={styles.dogRow}>{snapshot.dogs.map((dog) => <Pill key={dog.id} active={dog.id === selectedDogId} onPress={() => setSelectedDogId(dog.id)}>{dog.name}</Pill>)}</View>
-    {hasDog ? <Button onPress={() => setVisible(true)}>{t("today.log")}</Button> : <EmptyState title={t("onboarding.title")} body={t("onboarding.body")} />}
+    {hasDog ? <Button onPress={() => setVisible(true)}>{t("today.log")}</Button> : <><EmptyState title={t("onboarding.title")} body={t("onboarding.body")} /><Button onPress={() => router.push("/onboarding")}>{t("profile.addDog")}</Button></>}
     <SectionTitle title={t("log.history")} />
-    {dogCheckIns.length ? <Card>{dogCheckIns.map((checkIn) => { const events = dogEvents.filter((event) => event.checkInId === checkIn.id); return <Pressable key={checkIn.id} accessibilityRole="button" onLongPress={() => deleteEvent(checkIn.id)} style={styles.item}><View style={styles.itemIcon}><Text>{checkIn.nothing ? "…" : events.some((event) => event.location === "inside") ? "!" : "✓"}</Text></View><View style={styles.itemCopy}><Text style={styles.itemTitle}>{checkIn.nothing ? t("log.nothing") : events.map((event) => `${event.kind === "pee" ? t("log.pee") : t("log.poo")} ${event.location === "outside" ? t("common.outside") : t("common.inside")}`).join(" · ")}</Text><Text style={styles.itemMeta}>{dateTime(checkIn.occurredAt, snapshot.settings.locale)}{checkIn.notes ? ` · ${checkIn.notes}` : ""}</Text></View><Text style={styles.more}>⋯</Text></Pressable>; })}<Text style={styles.hint}>{t("log.hint")}</Text></Card> : <EmptyState title={t("log.emptyTitle")} body={t("log.emptyBody")} />}
+    {dogCheckIns.length ? <Card>{dogCheckIns.map((checkIn) => { const events = dogEvents.filter((event) => event.checkInId === checkIn.id); return <Pressable key={checkIn.id} accessibilityRole="button" accessibilityLabel={`${t("log.deleteAction")}: ${dateTime(checkIn.occurredAt, snapshot.settings.locale)}`} onPress={() => deleteEvent(checkIn.id)} style={styles.item}><View style={styles.itemIcon}><Text>{checkIn.nothing ? "…" : events.some((event) => event.location === "inside") ? "!" : "✓"}</Text></View><View style={styles.itemCopy}><Text style={styles.itemTitle}>{checkIn.nothing ? t("log.nothing") : events.map((event) => `${event.kind === "pee" ? t("log.pee") : t("log.poo")} ${event.location === "outside" ? t("common.outside") : t("common.inside")}`).join(" · ")}</Text><Text style={styles.itemMeta}>{dateTime(checkIn.occurredAt, snapshot.settings.locale)}{checkIn.notes ? ` · ${checkIn.notes}` : ""}</Text></View><Text style={styles.more}>⋯</Text></Pressable>; })}<Text style={styles.hint}>{t("log.hint")}</Text></Card> : <EmptyState title={t("log.emptyTitle")} body={t("log.emptyBody")} />}
     <LogSheet visible={visible} onClose={() => setVisible(false)} />
   </Screen>;
 }
