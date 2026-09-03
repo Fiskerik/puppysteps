@@ -19,7 +19,6 @@ workflows:
       vars:
         XCODE_WORKSPACE: Puppysteps.xcworkspace
         XCODE_SCHEME: Puppysteps
-        # Optional later, for automatic build-number increments:
         APP_STORE_APPLE_ID: 6808203305
 
     scripts:
@@ -31,6 +30,14 @@ workflows:
 
       - name: Generate iOS project
         script: npx expo prebuild --platform ios
+
+      - name: Increment iOS build number
+        script: |
+          set -e
+          LATEST_BUILD_NUMBER=$(app-store-connect get-latest-app-store-build-number "$APP_STORE_APPLE_ID")
+          NEXT_BUILD_NUMBER=$((LATEST_BUILD_NUMBER + 1))
+          cd "$CM_BUILD_DIR/ios"
+          agvtool new-version -all "$NEXT_BUILD_NUMBER"
 
       - name: Install CocoaPods
         script: cd ios && pod install
