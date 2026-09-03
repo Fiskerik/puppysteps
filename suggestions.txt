@@ -1,0 +1,69 @@
+**Bra idé – det finns ett tydligt gap på den svenska marknaden för en lokal, smart och “BabyJourney-liknande” app för nya hundägare.** ZigZag är stark internationellt på träning och potty training, men saknar svensk förankring (SKK, svenska rutiner, lagkrav, rasstatistik etc.). Här är vad du bör tänka på, utöver det du redan listat.
+
+### 1. Kissträning – din huvudfunktion (gör den riktigt smart)
+Din beskrivning är stark. Förbättra den så här:
+
+- **Adaptiv algoritm**: Börja med standardintervall baserat på ålder (tumregel: ålder i månader + 1 timme dagtid, tätare efter mat/lek/sömn). Uppdatera mönstret kontinuerligt:
+  - Lyckad ute → förläng intervall något + spara tid på dygnet.
+  - Olycka inne → korta intervall + varna tidigare.
+  - “Varken eller” → pusha “gå ut om 15 min” + logga som “missad chans”.
+- Extra triggers: efter mat, lek, sömn, bilresa, spänning.
+- Nattläge (mildare notiser), “jag är hemma/ute”, möjlighet att snooze eller justera manuellt.
+- Statistik: streaks, olycksfrekvens, prognos “när blir den rumsren?”.
+- Belöningsflöde: positiv feedback + tips om belöning direkt ute.
+
+Detta blir din differentiator mot generiska träningsappar.
+
+### 2. Data från SKK / chipnummer
+SKK Hunddata och Avelsdata är öppna för manuell sökning men **har ingen offentlig API**. Jordbruksverkets hundregister (det lagstadgade) har heller ingen öppen API för privatpersoner.
+
+**Praktiska alternativ:**
+- Manuell inmatning (ras, födelsedatum, kön, chip, namn) + valfri “hämta från SKK”-länk som öppnar Hunddata.
+- Scraping är riskabelt (upphovsrätt + villkor).
+- Kontakta SKK tidigt och fråga om partnerskap eller begränsad dataåtkomst – det ger trovärdighet.
+- För chip: validera format (15 siffror ISO) och låt användaren fylla i resten. DjurID/SKK ägarregister är för upphittade djur, inte allmän datahämtning.
+
+Börja med manuell + bra UX, bygg integration senare.
+
+### 3. Teknisk stack & Codemagic
+Du nämnde Next.js + Codemagic för iOS. Next.js är webb. För riktig iOS-app (push, bakgrund, native känsla) rekommenderar jag:
+
+- **Bäst för dig**: **React Native + Expo** (eller bare React Native). Samma TypeScript-kunskap som Next.js, bra ekosystem, Codemagic har utmärkt stöd, och du kan dela logik med en eventuell webbversion.
+- Alternativ: **Flutter** (högre prestanda, men ny språk) eller **Capacitor** ovanpå Next.js (snabbast till app store om du redan bygger webb, men sämre native-känsla och bakgrundshantering för notiser).
+
+Codemagic är utmärkt för både React Native och Flutter (iOS-signing, TestFlight, App Store). Börja med iOS, lägg till Android senare – samma kodbas.
+
+### 4. Fler funktioner som är värda att prioritera
+- **Tidslinje & milstolpar**: Födelse → hemkomst → första vaccination → rumsren → socialisering → kastration etc. Låt användaren bocka av + lägga till egna minnen/foton (precis som BabyJourney).
+- **Ras-specifika tips**: Storlek, energinivå, typiska beteenden, vanliga hälsoproblem (baserat på SKK-hälsoprogram om möjligt).
+- **Valpträning med video**: Korta, svenska instruktionsfilmer (positiv förstärkning). Börja med grunderna: sitt, ligg, inkallning, koppel, ensamhet, bitande.
+- **Flera hundar**: Profil per hund, gemensam kalender, separat kissträning.
+- **Hälsa & rutiner**: Vaccinationsschema, avmaskning, matschema, viktlogg, påminnelser om veterinär.
+- **Svensk kontext**: Lagkrav (chip + registrering senast 4 månader), Agria/If-tips, länkar till Svenska Kennelklubben, lokala hundrastgårdar, valpkurser.
+- **Community/light social**: Anonym “hur går det för andra i samma ålder/ras?” (utan att bli en full social app i början).
+- **Offline-first**: Många notiser och loggar måste fungera utan nät.
+
+### 5. Affärsmodell, lag & marknadsföring (svenska marknaden)
+- **Monetisering**: Freemium. Gratis kissträning + grundläggande tidslinje. Premium: obegränsade videor, avancerad statistik, rasdjup, flera hundar, export, familjedelning.
+- **GDPR**: Chipnummer + hunduppgifter + ägarens mejl/telefon = personuppgifter. Tydlig integritetspolicy, samtycke, dataminimering, rätt att radera. Hosting inom EU.
+- **App Store**: Svenska screenshots, lokaliserad beskrivning, keywords (“valpträning”, “rumsren”, “hundapp”).
+- **Marknadsföring**: Samarbeta med uppfödare, valpkurser, Agria, veterinärer, Instagram/TikTok-hundkonton. “Sveriges BabyJourney för hundar”.
+- **Översättningar**: Börja 100 % svenska. Bygg i18n från dag 1 (react-i18next eller motsvarande). Prioritera norska/danska/finska tidigt (liknande marknad), sedan engelska + de stora europeiska.
+
+### 6. Risker & prioriteringar för MVP
+**MVP (3–4 månader):**
+1. Onboarding (lägg till hund + ålder/ras)
+2. Smart kissträning med adaptiva notiser + loggning
+3. Enkel tidslinje + milstolpar
+4. Några grundläggande träningsvideor/tips
+5. Stöd för 1–2 hundar
+
+Lägg till ras-tips, mer content, SKK-integration och flerspråk senare.
+
+**Andra saker att tänka på:**
+- Push-notiser måste vara precis rätt – för många = uninstall.
+- Innehåll måste granskas av duktiga hundtränare (positiv förstärkning, inte gamla metoder).
+- Batteri- och bakgrundshantering på iOS är krävande.
+- Testa med riktiga valpägare tidigt (beta via TestFlight).
+
+Vill du ha hjälp med mer detaljerad feature-spec, datamodell för kissträningen, tech-stack-beslut eller en första backlog? Jag kan också skissa på användarflöden eller prioriteringsmatris.
