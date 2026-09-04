@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { PUPPY_TIMELINE, ageInDays, ageLabelForDays, type TimelineStage } from "../../src/content/puppyTimeline";
 import { useAppStore } from "../../src/store/AppStore";
 import type { Milestone } from "../../src/domain/models";
-import { Button, Card, DatePickerField, EmptyState, Field, Pill, Screen, SectionTitle } from "../../src/ui/Primitives";
+import { Button, Card, DatePickerField, EmptyState, Field, IconButton, Pill, Screen, SectionTitle } from "../../src/ui/Primitives";
 import { pickLocalPhoto } from "../../src/ui/photoPicker";
 import { colors, spacing, typography } from "../../src/ui/theme";
 
@@ -29,6 +29,7 @@ export default function JourneyScreen() {
   const [milestoneDate, setMilestoneDate] = useState(new Date().toISOString());
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
+  const [infoVisible, setInfoVisible] = useState(false);
   const days = ageInDays(selectedDog.birthDate);
   const currentStage = useMemo(() => PUPPY_TIMELINE.find((stage) => days !== null && days >= stage.minDays && days < stage.maxDays) ?? null, [days]);
   const [expandedByDog, setExpandedByDog] = useState<Record<string, string | null>>({});
@@ -82,10 +83,7 @@ export default function JourneyScreen() {
       <Text style={styles.progressHint}>{days === null ? "You can still browse every stage below." : `${Math.round(progress * 100)}% through the first-year guide · timing varies by breed and individual`}</Text>
     </Card>
 
-    <View style={styles.notice}>
-      <Text style={styles.noticeIcon}>♡</Text>
-      <Text style={styles.noticeText}>Evidence-informed guidance for puppies in Sweden · Content review: September 2026 · Medical decisions belong with your veterinarian.</Text>
-    </View>
+    <View style={styles.infoRow}><Text style={styles.infoHint}>Evidence-informed puppy guidance</Text><IconButton label="About this guidance" onPress={() => setInfoVisible(true)}>ⓘ</IconButton></View>
 
     <SectionTitle eyebrow="AGE-BY-AGE" title="Puppy timeline" />
     <View style={styles.timeline}>
@@ -150,6 +148,9 @@ export default function JourneyScreen() {
         </View>
       </KeyboardAvoidingView>
     </Modal>
+    <Modal visible={infoVisible} animationType="fade" transparent onRequestClose={() => setInfoVisible(false)}>
+      <View style={styles.infoOverlay}><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} style={styles.infoBackdrop} onPress={() => setInfoVisible(false)} /><Card style={styles.infoModal}><View style={styles.modalHeader}><Text style={styles.modalTitle}>About this guide</Text><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={() => setInfoVisible(false)}><Text style={styles.modalClose}>×</Text></Pressable></View><Text style={styles.noticeIcon}>♡</Text><Text style={styles.noticeText}>This guide is evidence-informed and adapted for puppies in Sweden. Content review: September 2026. Health decisions and vaccination plans should always be agreed with your veterinarian.</Text><Button onPress={() => setInfoVisible(false)}>Done</Button></Card></View>
+    </Modal>
   </Screen>;
 }
 
@@ -158,16 +159,17 @@ const styles = StyleSheet.create({
   eyebrow: { ...typography.small, color: colors.primary, textTransform: "uppercase", letterSpacing: 1.2 },
   title: { ...typography.display, color: colors.text },
   subtitle: { ...typography.body, color: colors.muted, maxWidth: 350, marginTop: 4 },
-  progressCard: { gap: spacing.md },
+  progressCard: { gap: spacing.sm, padding: spacing.md },
   progressTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
   progressCopy: { flex: 1, gap: 2 },
   progressEyebrow: { ...typography.small, color: colors.primary, textTransform: "uppercase", letterSpacing: 0.8 },
-  progressTitle: { ...typography.heading, color: colors.text },
-  progressPaw: { fontSize: 32 },
+  progressTitle: { ...typography.body, color: colors.text, fontWeight: "800" },
+  progressPaw: { fontSize: 25 },
   progressTrack: { height: 8, borderRadius: 4, backgroundColor: "rgba(47,107,95,0.14)", overflow: "hidden" },
   progressFill: { height: 8, borderRadius: 4, backgroundColor: colors.primary },
   progressHint: { ...typography.small, color: colors.muted },
-  notice: { flexDirection: "row", gap: spacing.sm, alignItems: "flex-start", paddingHorizontal: spacing.xs },
+  infoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.xs },
+  infoHint: { ...typography.small, color: colors.muted },
   noticeIcon: { fontSize: 20, color: colors.terracotta },
   noticeText: { ...typography.small, color: colors.muted, flex: 1 },
   timeline: { gap: 0 },
@@ -225,4 +227,7 @@ const styles = StyleSheet.create({
   photoRemove: { position: "absolute", top: 8, right: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.9)", alignItems: "center", justifyContent: "center" },
   photoRemoveText: { fontSize: 26, lineHeight: 28, color: colors.text },
   modalActions: { flexDirection: "row", gap: spacing.sm },
+  infoOverlay: { flex: 1, justifyContent: "center", alignItems: "center", padding: spacing.lg },
+  infoBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(32,51,43,0.35)" },
+  infoModal: { width: "100%", gap: spacing.md },
 });
