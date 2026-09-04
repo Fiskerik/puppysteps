@@ -1,10 +1,11 @@
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
 import { Alert, Image, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { PUPPY_TIMELINE, ageInDays, ageLabelForDays, type TimelineStage } from "../../src/content/puppyTimeline";
 import { useAppStore } from "../../src/store/AppStore";
 import type { Milestone } from "../../src/domain/models";
-import { Button, Card, DatePickerField, EmptyState, Field, IconButton, Pill, Screen, SectionTitle } from "../../src/ui/Primitives";
+import { Button, Card, DatePickerField, EmptyState, Field, InfoButton, InfoSheet, Pill, Screen, SectionTitle } from "../../src/ui/Primitives";
 import { pickLocalPhoto } from "../../src/ui/photoPicker";
 import { colors, spacing, typography } from "../../src/ui/theme";
 
@@ -64,28 +65,26 @@ export default function JourneyScreen() {
     }
   };
 
-  return <Screen>
+  return <Screen density="compact">
     <View style={styles.header}>
       <Text style={styles.eyebrow}>{t("nav.journey")}</Text>
-      <Text style={styles.title}>{selectedDog.name}&apos;s first year</Text>
-      <Text style={styles.subtitle}>A practical age-by-age guide. Repeat what helps, make hard steps easier, and follow your puppy rather than the calendar.</Text>
+      <Text style={styles.title}>{t("journey.firstYear", { defaultValue: "{{name}}'s first year", name: selectedDog.name })}</Text>
     </View>
 
-    <Card tone="moss" style={styles.progressCard}>
+    <Card tone="moss" density="compact" style={styles.progressCard}>
       <View style={styles.progressTop}>
+        <MaterialCommunityIcons name="calendar-heart-outline" size={24} color={colors.primary} />
         <View style={styles.progressCopy}>
           <Text style={styles.progressEyebrow}>{ageLabelForDays(days)}</Text>
-          <Text style={styles.progressTitle}>{currentStage?.title ?? (days === null ? "Add a birth date to personalise the plan" : "The first year is complete")}</Text>
+          <Text numberOfLines={1} style={styles.progressTitle}>{currentStage?.title ?? (days === null ? t("journey.progressMissingBirthDate", { defaultValue: "Add a birth date to personalise" }) : t("journey.progressComplete", { defaultValue: "The first year is complete" }))}</Text>
         </View>
-        <Text style={styles.progressPaw}>🐾</Text>
+        <Text style={styles.progressValue}>{days === null ? "—" : `${Math.round(progress * 100)}%`}</Text>
+        <InfoButton label={t("journey.guideInfoLabel", { defaultValue: "About this guidance" })} onPress={() => setInfoVisible(true)} />
       </View>
-      <View style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} /></View>
-      <Text style={styles.progressHint}>{days === null ? "You can still browse every stage below." : `${Math.round(progress * 100)}% through the first-year guide · timing varies by breed and individual`}</Text>
+      <View accessible accessibilityLabel={days === null ? t("journey.guideInfoLabel", { defaultValue: "First-year guide" }) : `${Math.round(progress * 100)}% ${t("journey.firstYear", { defaultValue: "through the first-year guide", name: selectedDog.name })}`} style={styles.progressTrack}><View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} /></View>
     </Card>
 
-    <View style={styles.infoRow}><Text style={styles.infoHint}>Evidence-informed puppy guidance</Text><IconButton label="About this guidance" onPress={() => setInfoVisible(true)}>ⓘ</IconButton></View>
-
-    <SectionTitle eyebrow="AGE-BY-AGE" title="Puppy timeline" />
+    <SectionTitle eyebrow={t("journey.timelineEyebrow", { defaultValue: "Age by age" })} title={t("journey.timelineTitle", { defaultValue: "Puppy timeline" })} />
     <View style={styles.timeline}>
       {PUPPY_TIMELINE.map((stage, index) => {
         const stageState = stateForStage(stage, days);
@@ -109,7 +108,7 @@ export default function JourneyScreen() {
               <Text style={styles.stageSummary}>{stage.summary}</Text>
             </Pressable>
             {isOpen ? <View style={styles.stageDetails}>
-              <Text style={styles.actionLabel}>EASY NEXT STEPS</Text>
+              <Text style={styles.actionLabel}>{t("journey.easyNextSteps", { defaultValue: "Easy next steps" })}</Text>
               {stage.actions.map((action, actionIndex) => <View key={action} style={styles.actionRow}>
                 <View style={styles.actionNumber}><Text style={styles.actionNumberText}>{actionIndex + 1}</Text></View>
                 <Text style={styles.actionText}>{action}</Text>
@@ -124,7 +123,7 @@ export default function JourneyScreen() {
       })}
     </View>
 
-    <SectionTitle eyebrow="YOUR MEMORIES" title="Personal milestones" action={hasDog ? `＋ ${t("common.add")}` : undefined} onAction={openAddMilestone} />
+    <SectionTitle eyebrow={t("journey.memoriesEyebrow", { defaultValue: "Your memories" })} title={t("journey.milestones")} action={hasDog ? `＋ ${t("common.add")}` : undefined} onAction={openAddMilestone} />
     {milestones.length ? <View style={styles.memoryList}>{milestones.map((milestone) => <Pressable key={milestone.id} accessibilityRole="checkbox" accessibilityState={{ checked: milestone.completed }} onPress={() => { if (!toggleMilestone(milestone)) Alert.alert(t("journey.saveError")); }} onLongPress={() => openEditMilestone(milestone)} delayLongPress={350} style={styles.memoryRow}>
       <View style={[styles.memoryCheck, milestone.completed && styles.memoryCheckDone]}><Text style={styles.memoryCheckText}>{milestone.completed ? "✓" : ""}</Text></View>
       <View style={styles.memoryCopy}><Text style={styles.memoryDate}>{shortDate(milestone.date, snapshot.settings.locale)}</Text><Text style={styles.memoryTitle}>{milestone.title}</Text>{milestone.description ? <Text style={styles.memoryDescription}>{milestone.description}</Text> : null}</View>{milestone.photoUri ? <Image source={{ uri: milestone.photoUri }} style={styles.memoryPhoto} /> : null}
@@ -148,30 +147,33 @@ export default function JourneyScreen() {
         </View>
       </KeyboardAvoidingView>
     </Modal>
-    <Modal visible={infoVisible} animationType="fade" transparent onRequestClose={() => setInfoVisible(false)}>
-      <View style={styles.infoOverlay}><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} style={styles.infoBackdrop} onPress={() => setInfoVisible(false)} /><Card style={styles.infoModal}><View style={styles.modalHeader}><Text style={styles.modalTitle}>About this guide</Text><Pressable accessibilityRole="button" accessibilityLabel={t("common.close")} onPress={() => setInfoVisible(false)}><Text style={styles.modalClose}>×</Text></Pressable></View><Text style={styles.noticeIcon}>♡</Text><Text style={styles.noticeText}>This guide is evidence-informed and adapted for puppies in Sweden. Content review: September 2026. Health decisions and vaccination plans should always be agreed with your veterinarian.</Text><Button onPress={() => setInfoVisible(false)}>Done</Button></Card></View>
-    </Modal>
+    <InfoSheet visible={infoVisible} onClose={() => setInfoVisible(false)} title={t("journey.guideInfoTitle", { defaultValue: "About this guide" })} doneLabel={t("common.done")} closeLabel={t("common.close")}>
+      <View style={styles.guidanceIntro}>
+        <MaterialCommunityIcons name="heart-outline" size={24} color={colors.terracotta} />
+        <Text style={styles.guidanceText}>{t("journey.guideInfoBody", { defaultValue: "This guide is evidence-informed and adapted for puppies in Sweden. It is a calm reference, not a race to finish." })}</Text>
+      </View>
+      <View style={styles.guidanceSection}>
+        <Text style={styles.guidanceText}>{t("journey.guideInfoHeart", { defaultValue: "Save the small moments that matter to your family. Repeat what helps and make difficult steps easier." })}</Text>
+      </View>
+      <View style={styles.guidanceSection}>
+        <Text style={styles.guidanceText}>{t("journey.guideInfoSafety", { defaultValue: "Timing varies by breed and individual. Agree health, vaccination, exercise, and care plans with your veterinarian." })}</Text>
+      </View>
+    </InfoSheet>
   </Screen>;
 }
 
 const styles = StyleSheet.create({
   header: { gap: 4 },
-  eyebrow: { ...typography.small, color: colors.primary, textTransform: "uppercase", letterSpacing: 1.2 },
+  eyebrow: { ...typography.small, color: colors.primary, letterSpacing: 0.5 },
   title: { ...typography.display, color: colors.text },
-  subtitle: { ...typography.body, color: colors.muted, maxWidth: 350, marginTop: 4 },
-  progressCard: { gap: spacing.sm, padding: spacing.md },
-  progressTop: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  progressCard: { gap: spacing.sm },
+  progressTop: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   progressCopy: { flex: 1, gap: 2 },
-  progressEyebrow: { ...typography.small, color: colors.primary, textTransform: "uppercase", letterSpacing: 0.8 },
+  progressEyebrow: { ...typography.small, color: colors.primary, letterSpacing: 0.5 },
   progressTitle: { ...typography.body, color: colors.text, fontWeight: "800" },
-  progressPaw: { fontSize: 25 },
-  progressTrack: { height: 8, borderRadius: 4, backgroundColor: "rgba(47,107,95,0.14)", overflow: "hidden" },
-  progressFill: { height: 8, borderRadius: 4, backgroundColor: colors.primary },
-  progressHint: { ...typography.small, color: colors.muted },
-  infoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: spacing.xs },
-  infoHint: { ...typography.small, color: colors.muted },
-  noticeIcon: { fontSize: 20, color: colors.terracotta },
-  noticeText: { ...typography.small, color: colors.muted, flex: 1 },
+  progressValue: { ...typography.small, color: colors.primaryDark, fontWeight: "800" },
+  progressTrack: { height: 5, borderRadius: 3, backgroundColor: "rgba(47,107,95,0.14)", overflow: "hidden" },
+  progressFill: { height: 5, borderRadius: 3, backgroundColor: colors.primary },
   timeline: { gap: 0 },
   stageRow: { flexDirection: "row", alignItems: "stretch" },
   rail: { width: 34, alignItems: "center" },
@@ -186,18 +188,18 @@ const styles = StyleSheet.create({
   stageCardCurrent: { borderWidth: 2, borderColor: colors.terracotta },
   stageHeading: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: spacing.sm },
   stageHeadingCopy: { flex: 1, gap: 2 },
-  stageAge: { ...typography.small, color: colors.primary, textTransform: "uppercase", letterSpacing: 0.7 },
+  stageAge: { ...typography.small, color: colors.primary, letterSpacing: 0.4 },
   stageTitle: { ...typography.heading, color: colors.text },
   stageSummary: { ...typography.body, color: colors.muted, marginTop: spacing.sm },
   expandIcon: { fontSize: 24, color: colors.primary, fontWeight: "400" },
   stageDetails: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.md, gap: spacing.sm },
-  actionLabel: { ...typography.small, color: colors.primary, letterSpacing: 0.9 },
+  actionLabel: { ...typography.small, color: colors.primary, letterSpacing: 0.5 },
   actionRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
   actionNumber: { width: 24, height: 24, borderRadius: 12, backgroundColor: colors.moss, alignItems: "center", justifyContent: "center", marginTop: 1 },
   actionNumberText: { ...typography.small, color: colors.primaryDark },
   actionText: { ...typography.body, color: colors.text, flex: 1 },
   safetyBox: { backgroundColor: "#FFF4EC", borderRadius: 15, padding: spacing.md, gap: 3, marginTop: spacing.xs },
-  safetyTitle: { ...typography.small, color: colors.attention, textTransform: "uppercase", letterSpacing: 0.7 },
+  safetyTitle: { ...typography.small, color: colors.attention, letterSpacing: 0.3 },
   safetyText: { ...typography.body, color: colors.text },
   source: { ...typography.small, color: colors.primary, textDecorationLine: "underline", paddingVertical: spacing.xs },
   memoryList: { gap: spacing.sm },
@@ -227,7 +229,7 @@ const styles = StyleSheet.create({
   photoRemove: { position: "absolute", top: 8, right: 8, width: 34, height: 34, borderRadius: 17, backgroundColor: "rgba(255,255,255,0.9)", alignItems: "center", justifyContent: "center" },
   photoRemoveText: { fontSize: 26, lineHeight: 28, color: colors.text },
   modalActions: { flexDirection: "row", gap: spacing.sm },
-  infoOverlay: { flex: 1, justifyContent: "center", alignItems: "center", padding: spacing.lg },
-  infoBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0, backgroundColor: "rgba(32,51,43,0.35)" },
-  infoModal: { width: "100%", gap: spacing.md },
+  guidanceIntro: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm },
+  guidanceSection: { gap: 3 },
+  guidanceText: { ...typography.body, color: colors.muted, flex: 1 },
 });

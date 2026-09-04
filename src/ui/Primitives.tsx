@@ -1,16 +1,20 @@
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
-import { Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps, type TextInputProps, type TextStyle, type ViewStyle } from "react-native";
+import { Image, Keyboard, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, type PressableProps, type StyleProp, type TextInputProps, type TextStyle, type ViewStyle } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { colors, shadow, spacing, typography } from "./theme";
 
-export function Screen({ children, scroll = true, style, scrollRef }: { children: React.ReactNode; scroll?: boolean; style?: ViewStyle; scrollRef?: React.RefObject<ScrollView | null> }) {
-  const content = scroll ? <ScrollView ref={scrollRef} contentContainerStyle={[styles.scroll, style]} showsVerticalScrollIndicator={false}>{children}</ScrollView> : <View style={[styles.fill, styles.scroll, style]}>{children}</View>;
+export type Density = "default" | "compact";
+
+export function Screen({ children, scroll = true, style, scrollRef, density = "default" }: { children: React.ReactNode; scroll?: boolean; style?: ViewStyle; scrollRef?: React.RefObject<ScrollView | null>; density?: Density }) {
+  const contentStyle = [styles.scroll, density === "compact" && styles.scrollCompact, style];
+  const content = scroll ? <ScrollView ref={scrollRef} contentContainerStyle={contentStyle} showsVerticalScrollIndicator={false}>{children}</ScrollView> : <View style={[styles.fill, contentStyle]}>{children}</View>;
   return <SafeAreaView style={styles.safe}>{content}</SafeAreaView>;
 }
 
-export function Card({ children, style, tone = "surface" }: { children: React.ReactNode; style?: ViewStyle; tone?: "surface" | "moss" | "sun" }) {
-  return <View style={[styles.card, tone === "moss" && styles.cardMoss, tone === "sun" && styles.cardSun, style]}>{children}</View>;
+export function Card({ children, style, tone = "surface", density = "default" }: { children: React.ReactNode; style?: ViewStyle; tone?: "surface" | "moss" | "sun"; density?: Density }) {
+  return <View style={[styles.card, density === "compact" && styles.cardCompact, tone === "moss" && styles.cardMoss, tone === "sun" && styles.cardSun, style]}>{children}</View>;
 }
 
 export function Button({ children, variant = "primary", style, disabled = false, ...props }: Omit<PressableProps, "style"> & { children: React.ReactNode; variant?: "primary" | "secondary" | "ghost" | "danger"; style?: ViewStyle }) {
@@ -18,8 +22,28 @@ export function Button({ children, variant = "primary", style, disabled = false,
   return <Pressable accessibilityRole="button" accessibilityState={{ disabled: isDisabled }} disabled={isDisabled} style={({ pressed }) => [styles.button, variant === "secondary" && styles.buttonSecondary, variant === "ghost" && styles.buttonGhost, variant === "danger" && styles.buttonDanger, isDisabled && styles.disabled, pressed && !isDisabled && styles.pressed, style]} {...props}><Text style={[styles.buttonText, variant !== "primary" && styles.buttonTextDark, variant === "danger" && styles.buttonTextDanger]}>{children}</Text></Pressable>;
 }
 
-export function IconButton({ label, children, style, ...props }: Omit<PressableProps, "style"> & { label: string; children: React.ReactNode; style?: ViewStyle }) {
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed, style]} {...props}><Text style={styles.iconButtonText}>{children}</Text></Pressable>;
+export function IconButton({ label, children, style, ...props }: Omit<PressableProps, "style"> & { label: string; children: React.ReactNode; style?: StyleProp<ViewStyle> }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} style={({ pressed }) => [styles.iconButton, pressed && styles.pressed, style]} {...props}>{typeof children === "string" || typeof children === "number" ? <Text style={styles.iconButtonText}>{children}</Text> : children}</Pressable>;
+}
+
+export function InfoButton({ label, onPress, style }: { label: string; onPress: () => void; style?: StyleProp<ViewStyle> }) {
+  return <IconButton label={label} onPress={onPress} style={[styles.infoButton, style]}><Ionicons name="information-circle-outline" size={22} color={colors.primary} /></IconButton>;
+}
+
+export function InfoSheet({ visible, onClose, title, children, doneLabel = "Done", closeLabel = "Close" }: { visible: boolean; onClose: () => void; title: string; children: React.ReactNode; doneLabel?: string; closeLabel?: string }) {
+  return <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <View style={styles.infoSheetOverlay}>
+      <Pressable accessibilityRole="button" accessibilityLabel={closeLabel} style={styles.infoSheetBackdrop} onPress={onClose} />
+      <Card style={styles.infoSheet}>
+        <View style={styles.infoSheetHeader}>
+          <Text style={styles.infoSheetTitle}>{title}</Text>
+          <IconButton label={closeLabel} onPress={onClose} style={styles.infoSheetClose}>×</IconButton>
+        </View>
+        {children}
+        <Button onPress={onClose}>{doneLabel}</Button>
+      </Card>
+    </View>
+  </Modal>;
 }
 
 export function Pill({ children, active = false, onPress, style }: { children: React.ReactNode; active?: boolean; onPress?: () => void; style?: ViewStyle }) {
@@ -158,7 +182,9 @@ const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
   fill: { flex: 1 },
   scroll: { padding: spacing.lg, paddingBottom: 112, gap: spacing.lg },
+  scrollCompact: { gap: spacing.md },
   card: { backgroundColor: colors.surface, borderRadius: 24, padding: spacing.lg, ...shadow },
+  cardCompact: { borderRadius: 20, padding: spacing.md },
   cardMoss: { backgroundColor: colors.moss },
   cardSun: { backgroundColor: "#FFF7DA" },
   button: { minHeight: 50, paddingHorizontal: spacing.lg, borderRadius: 17, alignItems: "center", justifyContent: "center", backgroundColor: colors.primary },
@@ -172,13 +198,14 @@ const styles = StyleSheet.create({
   disabled: { opacity: 0.45 },
   iconButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", ...shadow },
   iconButtonText: { fontSize: 20, color: colors.text },
+  infoButton: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.moss, shadowOpacity: 0 },
   pill: { paddingVertical: 9, paddingHorizontal: 13, borderRadius: 20, backgroundColor: colors.surfaceAlt },
   pillActive: { backgroundColor: colors.primary },
   pillText: { ...typography.small, color: colors.muted },
   pillTextActive: { color: "#FFFFFF" },
   sectionTitle: { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", gap: spacing.md },
   sectionTitleCopy: { gap: 4, flex: 1 },
-  eyebrow: { ...typography.small, color: colors.primary, textTransform: "uppercase", letterSpacing: 1.2 },
+  eyebrow: { ...typography.small, color: colors.primary, letterSpacing: 0.2 },
   sectionHeading: { ...typography.heading, color: colors.text },
   actionText: { ...typography.small, color: colors.primary, fontWeight: "800" },
   fieldWrap: { gap: 7 },
@@ -190,6 +217,12 @@ const styles = StyleSheet.create({
   dateOverlay: { flex: 1, backgroundColor: "rgba(32,51,43,0.28)", justifyContent: "center", padding: spacing.lg },
   dateDialog: { backgroundColor: colors.surface, borderRadius: 24, padding: spacing.lg, gap: spacing.md, ...shadow },
   dateDialogTitle: { ...typography.heading, color: colors.text },
+  infoSheetOverlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(32,51,43,0.28)" },
+  infoSheetBackdrop: { position: "absolute", top: 0, right: 0, bottom: 0, left: 0 },
+  infoSheet: { gap: spacing.md, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, paddingBottom: Platform.OS === "ios" ? spacing.xl : spacing.lg },
+  infoSheetHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  infoSheetTitle: { ...typography.title, color: colors.text, flex: 1 },
+  infoSheetClose: { backgroundColor: "transparent", shadowOpacity: 0 },
   avatar: { backgroundColor: colors.sun, alignItems: "center", justifyContent: "center" },
   empty: { alignItems: "center", gap: spacing.sm },
   emptyTitle: { ...typography.heading, color: colors.text, textAlign: "center" },
